@@ -573,17 +573,21 @@ export default function POSTerminal() {
       {showScanner && (
         <div style={{ position:"fixed",inset:0,background:"#000",zIndex:500,
           display:"flex",flexDirection:"column",maxWidth:480,margin:"0 auto" }}>
-          <div style={{ padding:"14px 16px",display:"flex",alignItems:"center",
-            justifyContent:"space-between",background:"rgba(0,0,0,0.6)" }}>
+          {/* Botón cerrar fijo siempre visible */}
+          <div style={{ position:"absolute",top:0,left:0,right:0,zIndex:600,
+            padding:"14px 16px",display:"flex",alignItems:"center",
+            justifyContent:"space-between",background:"rgba(0,0,0,0.75)" }}>
             <span style={{ fontSize:14,color:"#fff",fontWeight:600 }}>📷 Escáner</span>
             <button onClick={() => setShowScanner(false)}
-              style={{ background:"rgba(255,255,255,0.15)",border:"none",borderRadius:9,
-                color:"#fff",padding:"7px 16px",cursor:"pointer",fontSize:13,fontFamily:T.font,fontWeight:500 }}>
-              ✕ Cerrar
+              style={{ background:"#ef4444",border:"none",borderRadius:12,
+                color:"#fff",padding:"12px 22px",cursor:"pointer",
+                fontSize:15,fontFamily:T.font,fontWeight:700,
+                boxShadow:"0 4px 14px rgba(239,68,68,0.5)" }}>
+              ✕ CERRAR
             </button>
           </div>
 
-          <div style={{ position:"relative",background:"#000",width:"100%",aspectRatio:"4/3",flexShrink:0 }}>
+          <div style={{ position:"relative",background:"#000",width:"100%",aspectRatio:"4/3",flexShrink:0,marginTop:58 }}>
             <video ref={videoRef} style={{ width:"100%",height:"100%",objectFit:"cover" }} playsInline muted />
             {/* Viewfinder */}
             <div style={{ position:"absolute",inset:0,display:"flex",alignItems:"center",
