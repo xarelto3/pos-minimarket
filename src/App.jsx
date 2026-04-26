@@ -1,4 +1,3 @@
-
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { initializeApp } from "firebase/app";
@@ -94,8 +93,244 @@ const UserIcon   = () => <Ico d={["M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2","M
 const AlertIcon  = () => <Ico d={["M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z","M12 9v4","M12 17h.01"]} />;
 
 // ══════════════════════════════════════════════════════════════════════════════
-// COMPONENTE LOGIN
+// COMPONENTE APERTURA DE CAJA
 // ══════════════════════════════════════════════════════════════════════════════
+function AperturaCaja({ usuario, cajaMinima, onAbrir, onLogout }) {
+  const [monto, setMonto] = useState("");
+  const [error, setError] = useState("");
+
+  const handleAbrir = async () => {
+    const m = Number(monto);
+    if (!monto || isNaN(m) || m < 0) { setError("Ingresa un monto válido"); return; }
+    if (cajaMinima > 0 && m < cajaMinima) {
+      setError(`El monto mínimo de apertura es ${fmt(cajaMinima)}`);
+      return;
+    }
+    const apertura = {
+      vendedor: usuario.nombre,
+      montoApertura: m,
+      fechaApertura: now(),
+      fechaTs: Date.now(),
+      estado: "abierta",
+    };
+    await addDoc(collection(db, "cajas"), apertura);
+    onAbrir(m);
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", background:"linear-gradient(135deg,#1a56db,#059669)",
+      display:"flex", alignItems:"center", justifyContent:"center",
+      padding:20, fontFamily:T.font }}>
+      <div style={{ background:"#fff", borderRadius:20, padding:28,
+        width:"100%", maxWidth:380, boxShadow:"0 20px 60px rgba(0,0,0,0.2)" }}>
+
+        <div style={{ textAlign:"center", marginBottom:24 }}>
+          <div style={{ fontSize:44, marginBottom:8 }}>💰</div>
+          <div style={{ fontSize:20, fontWeight:700, color:T.text }}>Apertura de Caja</div>
+          <div style={{ fontSize:13, color:T.muted, marginTop:4 }}>👤 {usuario.nombre}</div>
+        </div>
+
+        <div style={{ marginBottom:16 }}>
+          <div style={{ fontSize:13, fontWeight:600, color:T.sub, marginBottom:8 }}>
+            Monto inicial en caja (efectivo)
+          </div>
+          <input
+            type="number"
+            value={monto}
+            onChange={e => { setMonto(e.target.value); setError(""); }}
+            onKeyDown={e => e.key==="Enter" && handleAbrir()}
+            placeholder="Ej: 10000"
+            style={{ ...inputStyle, fontSize:20, fontWeight:700, textAlign:"center" }}
+          />
+          {cajaMinima > 0 && (
+            <div style={{ fontSize:12, color:T.muted, marginTop:6, textAlign:"center" }}>
+              Mínimo requerido: <b>{fmt(cajaMinima)}</b>
+            </div>
+          )}
+        </div>
+
+        {/* Montos rápidos */}
+        <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+          {[5000, 10000, 20000, 50000].map(v => (
+            <button key={v} onClick={() => setMonto(v)}
+              style={{ flex:1, padding:"9px 0", borderRadius:9, cursor:"pointer",
+                fontFamily:T.font, fontSize:12, fontWeight:600,
+                border:Number(monto)===v?`2px solid ${T.accent}`:`2px solid ${T.border}`,
+                background:Number(monto)===v?T.accentBg:"#fff",
+                color:Number(monto)===v?T.accent:T.sub }}>
+              {fmt(v)}
+            </button>
+          ))}
+        </div>
+
+        {error && (
+          <div style={{ background:T.redBg, border:`1px solid #fecaca`, borderRadius:10,
+            padding:"10px 14px", marginBottom:14, fontSize:13, color:T.red, fontWeight:500 }}>
+            ⚠ {error}
+          </div>
+        )}
+
+        <button onClick={handleAbrir}
+          style={{ ...greenBtn, width:"100%", padding:16, borderRadius:12, fontSize:15, fontWeight:700, marginBottom:10 }}>
+          ✓ Abrir caja · {monto ? fmt(Number(monto)) : "$0"}
+        </button>
+
+        <button onClick={onLogout}
+          style={{ ...ghostBtn, width:"100%", padding:12, borderRadius:12, fontSize:14 }}>
+          ← Volver al login
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// COMPONENTE CIERRE DE CAJA
+// ══════════════════════════════════════════════════════════════════════════════
+function CierreCaja({ usuario, montoApertura, sales, onCerrar, onCancelar }) {
+  const [conteoEfectivo, setConteoEfectivo] = useState("");
+  const [cerrado, setCerrado] = useState(false);
+
+  const misSales = sales.filter(s => s.vendedor === usuario.nombre);
+  const totalEfectivo = misSales.filter(s=>s.payMethod==="efectivo").reduce((a,x)=>a+x.total,0);
+  const totalDebito   = misSales.filter(s=>s.payMethod==="débito").reduce((a,x)=>a+x.total,0);
+  const totalCredito  = misSales.filter(s=>s.payMethod==="crédito").reduce((a,x)=>a+x.total,0);
+  const totalTransfer = misSales.filter(s=>s.payMethod==="transferencia").reduce((a,x)=>a+x.total,0);
+  const totalVentas   = misSales.reduce((a,x)=>a+x.total,0);
+  const efectivoEsperado = montoApertura + totalEfectivo;
+  const diferencia = conteoEfectivo ? Number(conteoEfectivo) - efectivoEsperado : null;
+
+  const handleCerrar = async () => {
+    const cierre = {
+      vendedor: usuario.nombre,
+      montoApertura,
+      totalVentas,
+      totalEfectivo,
+      totalDebito,
+      totalCredito,
+      totalTransfer,
+      efectivoEsperado,
+      conteoEfectivo: Number(conteoEfectivo) || 0,
+      diferencia: diferencia || 0,
+      cantidadVentas: misSales.length,
+      fechaCierre: now(),
+      fechaTs: Date.now(),
+    };
+    await addDoc(collection(db, "cierres"), cierre);
+    setCerrado(true);
+    setTimeout(() => onCerrar(), 2500);
+  };
+
+  if (cerrado) return (
+    <div style={{ minHeight:"100vh", background:"#f4f5f7", display:"flex",
+      alignItems:"center", justifyContent:"center", fontFamily:T.font }}>
+      <div style={{ textAlign:"center" }}>
+        <div style={{ fontSize:60, marginBottom:16 }}>✅</div>
+        <div style={{ fontSize:20, fontWeight:700, color:T.green }}>¡Caja cerrada!</div>
+        <div style={{ fontSize:13, color:T.muted, marginTop:8 }}>Hasta pronto {usuario.nombre}</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ minHeight:"100vh", background:T.bg, fontFamily:T.font,
+      display:"flex", flexDirection:"column", maxWidth:480, margin:"0 auto" }}>
+
+      <div style={{ background:"#059669", padding:"14px 16px",
+        display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <div>
+          <div style={{ fontSize:11, color:"rgba(255,255,255,0.8)" }}>CIERRE DE CAJA</div>
+          <div style={{ fontSize:16, fontWeight:700, color:"#fff" }}>👤 {usuario.nombre}</div>
+        </div>
+        <button onClick={onCancelar}
+          style={{ background:"rgba(255,255,255,0.2)", border:"none", borderRadius:9,
+            color:"#fff", padding:"7px 14px", cursor:"pointer", fontSize:13, fontFamily:T.font }}>
+          ← Volver
+        </button>
+      </div>
+
+      <div style={{ flex:1, overflowY:"auto", padding:16 }}>
+
+        {/* Resumen ventas */}
+        <div style={{ background:"#fff", border:`1px solid ${T.border}`, borderRadius:12,
+          padding:"14px 16px", marginBottom:16, boxShadow:"0 1px 3px rgba(0,0,0,0.08)" }}>
+          <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:12 }}>
+            Resumen del turno
+          </div>
+          {[
+            ["Ventas realizadas", misSales.length + " venta(s)"],
+            ["Total vendido", fmt(totalVentas)],
+          ].map(([label,val]) => (
+            <div key={label} style={{ display:"flex", justifyContent:"space-between",
+              padding:"7px 0", borderBottom:`1px solid ${T.border}`, fontSize:13 }}>
+              <span style={{ color:T.muted }}>{label}</span>
+              <span style={{ fontWeight:700, color:T.text }}>{val}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Desglose por medio de pago */}
+        <div style={{ background:"#fff", border:`1px solid ${T.border}`, borderRadius:12,
+          padding:"14px 16px", marginBottom:16, boxShadow:"0 1px 3px rgba(0,0,0,0.08)" }}>
+          <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:12 }}>
+            Por medio de pago
+          </div>
+          {[
+            ["💵 Efectivo en ventas", totalEfectivo],
+            ["💳 Débito", totalDebito],
+            ["💳 Crédito", totalCredito],
+            ["📲 Transferencia", totalTransfer],
+          ].map(([label,val]) => (
+            <div key={label} style={{ display:"flex", justifyContent:"space-between",
+              padding:"7px 0", borderBottom:`1px solid ${T.border}`, fontSize:13 }}>
+              <span style={{ color:T.muted }}>{label}</span>
+              <span style={{ fontWeight:700, color:val>0?T.text:T.muted }}>{fmt(val)}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Conteo de efectivo */}
+        <div style={{ background:"#fff", border:`1px solid ${T.border}`, borderRadius:12,
+          padding:"14px 16px", marginBottom:16, boxShadow:"0 1px 3px rgba(0,0,0,0.08)" }}>
+          <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:4 }}>
+            Conteo de efectivo en caja
+          </div>
+          <div style={{ fontSize:12, color:T.muted, marginBottom:12 }}>
+            Apertura: {fmt(montoApertura)} + Ventas: {fmt(totalEfectivo)} = <b>Esperado: {fmt(efectivoEsperado)}</b>
+          </div>
+          <input type="number" value={conteoEfectivo}
+            onChange={e => setConteoEfectivo(e.target.value)}
+            placeholder="Cuenta el efectivo físico..."
+            style={{ ...inputStyle, fontSize:18, fontWeight:700, textAlign:"center" }} />
+
+          {conteoEfectivo && diferencia !== null && (
+            <div style={{ marginTop:12, padding:"12px 16px", borderRadius:10,
+              background: diferencia===0?"#f0fdf4":diferencia>0?"#eff4ff":T.redBg,
+              border: `1px solid ${diferencia===0?"#bbf7d0":diferencia>0?"#bfdbfe":"#fecaca"}` }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <span style={{ fontSize:14, fontWeight:600,
+                  color: diferencia===0?T.green:diferencia>0?T.accent:T.red }}>
+                  {diferencia===0?"✓ Cuadra perfecto":diferencia>0?"↑ Sobran":differencia<0?"↓ Faltan":""}
+                </span>
+                <span style={{ fontSize:22, fontWeight:800,
+                  color: diferencia===0?T.green:diferencia>0?T.accent:T.red }}>
+                  {diferencia===0?"$0":fmt(Math.abs(diferencia))}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <button onClick={handleCerrar}
+          style={{ ...primaryBtn, width:"100%", padding:16, borderRadius:12,
+            fontSize:15, fontWeight:700, background:"#7c3aed",
+            boxShadow:"0 2px 8px rgba(124,58,237,0.3)" }}>
+          Confirmar cierre de caja
+        </button>
+      </div>
+    </div>
+  );
+}
 function LoginScreen({ vendedores, onLogin, onAdmin }) {
   const [mode, setMode]     = useState("vendedor"); // vendedor | admin
   const [nombre, setNombre] = useState("");
@@ -191,12 +426,13 @@ function LoginScreen({ vendedores, onLogin, onAdmin }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // PANEL ADMIN
 // ══════════════════════════════════════════════════════════════════════════════
-function AdminPanel({ products, sales, vendedores, onLogout, onSaveProduct, onDeleteProduct }) {
+function AdminPanel({ products, sales, vendedores, cajaMinima, onLogout, onSaveProduct, onDeleteProduct, onSaveCajaMinima }) {
   const [tab, setTab]           = useState("resumen");
   const [editProduct, setEditProduct] = useState(null);
   const [newVendedor, setNewVendedor] = useState("");
   const [search, setSearch]     = useState("");
   const [flashMsg, setFlashMsg] = useState("");
+  const [newCajaMinima, setNewCajaMinima] = useState(String(cajaMinima));
 
   const flash = (msg) => { setFlashMsg(msg); setTimeout(()=>setFlashMsg(""),2000); };
 
@@ -266,11 +502,11 @@ function AdminPanel({ products, sales, vendedores, onLogout, onSaveProduct, onDe
 
       {/* Tabs */}
       <div style={{ display:"flex",background:"#fff",borderBottom:`1px solid ${T.border}`,marginTop:12 }}>
-        {[["resumen","Resumen"],["inventario","Inventario"],["vendedores","Vendedores"],["historial","Historial"]].map(([v,label]) => (
+        {[["resumen","Resumen"],["inventario","Inventario"],["vendedores","Vendedores"],["historial","Historial"],["config","Config"]].map(([v,label]) => (
           <button key={v} onClick={() => setTab(v)} style={{
             flex:1,padding:"11px 0",background:"none",border:"none",
             borderBottom:tab===v?`2px solid ${T.admin}`:"2px solid transparent",
-            color:tab===v?T.admin:T.muted,fontSize:11,fontWeight:tab===v?700:500,
+            color:tab===v?T.admin:T.muted,fontSize:10,fontWeight:tab===v?700:500,
             cursor:"pointer",fontFamily:T.font }}>
             {label}
           </button>
@@ -494,15 +730,86 @@ function AdminPanel({ products, sales, vendedores, onLogout, onSaveProduct, onDe
             ))}
           </div>
         )}
+        {/* ── CONFIG ── */}
+        {tab==="config" && (
+          <div>
+            <div style={{ background:"#fff",border:`1px solid ${T.border}`,borderRadius:12,
+              padding:"14px 16px",marginBottom:16,boxShadow:shadow }}>
+              <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:4 }}>
+                💰 Monto mínimo de apertura de caja
+              </div>
+              <div style={{ fontSize:12,color:T.muted,marginBottom:12 }}>
+                Los vendedores no podrán abrir caja con menos de este monto
+              </div>
+              <input type="number" value={newCajaMinima}
+                onChange={e=>setNewCajaMinima(e.target.value)}
+                placeholder="Ej: 10000" style={inputStyle} />
+              <button onClick={async()=>{
+                  await onSaveCajaMinima(Number(newCajaMinima)||0);
+                  flash("✓ Monto mínimo guardado");
+                }}
+                style={{ ...adminBtn,width:"100%",padding:12,borderRadius:10,fontSize:14,marginTop:10 }}>
+                Guardar configuración
+              </button>
+            </div>
+
+            {/* Historial de cierres */}
+            <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:12 }}>
+              Historial de cierres de caja
+            </div>
+            <CierresAdmin />
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// TERMINAL VENDEDOR
-// ══════════════════════════════════════════════════════════════════════════════
-function VendedorPOS({ usuario, products, sales, onLogout }) {
+function CierresAdmin() {
+  const [cierres, setCierres] = useState([]);
+  useEffect(() => {
+    const q = query(collection(db,"cierres"), orderBy("fechaTs","desc"));
+    const unsub = onSnapshot(q, snap => {
+      setCierres(snap.docs.map(d=>({...d.data(),id:d.id})));
+    });
+    return ()=>unsub();
+  },[]);
+
+  if (cierres.length===0) return (
+    <div style={{ textAlign:"center",color:"#9ca3af",fontSize:13,marginTop:20 }}>
+      Sin cierres registrados aún
+    </div>
+  );
+
+  return cierres.map(c => (
+    <div key={c.id} style={{ background:"#fff",border:`1px solid ${T.border}`,
+      borderRadius:10,padding:"13px 15px",marginBottom:10,boxShadow:"0 1px 3px rgba(0,0,0,0.08)" }}>
+      <div style={{ display:"flex",justifyContent:"space-between",marginBottom:6 }}>
+        <div>
+          <div style={{ fontSize:13,fontWeight:700,color:"#7c3aed" }}>👤 {c.vendedor}</div>
+          <div style={{ fontSize:11,color:"#6b7280" }}>{c.fechaCierre}</div>
+        </div>
+        <div style={{ textAlign:"right" }}>
+          <div style={{ fontSize:16,fontWeight:700,color:"#111827" }}>{fmt(c.totalVentas)}</div>
+          <div style={{ fontSize:11,color:"#6b7280" }}>{c.cantidadVentas} venta(s)</div>
+        </div>
+      </div>
+      <div style={{ fontSize:11,color:"#6b7280",display:"flex",gap:14 }}>
+        <span>Apertura: {fmt(c.montoApertura)}</span>
+        <span>Efectivo: {fmt(c.totalEfectivo)}</span>
+        {c.diferencia!==0&&(
+          <span style={{ color:c.diferencia>0?"#059669":"#dc2626",fontWeight:600 }}>
+            {c.diferencia>0?"Sobran ":"Faltan "}{fmt(Math.abs(c.diferencia))}
+          </span>
+        )}
+      </div>
+    </div>
+  ));
+}
+function VendedorPOS({ usuario, products, sales, cajaMinima, onLogout }) {
+  const [cajaAbierta, setCajaAbierta]   = useState(false);
+  const [montoApertura, setMontoApertura] = useState(0);
+  const [showCierre, setShowCierre]     = useState(false);
   const [cart, setCart]           = useState([]);
   const [tab, setTab]             = useState("sale");
   const [search, setSearch]       = useState("");
@@ -611,6 +918,31 @@ function VendedorPOS({ usuario, products, sales, onLogout }) {
     p.name.toLowerCase().includes(search.toLowerCase())||p.id.includes(search)
   );
 
+  // Si caja no está abierta, mostrar pantalla de apertura
+  if (!cajaAbierta) {
+    return (
+      <AperturaCaja
+        usuario={usuario}
+        cajaMinima={cajaMinima}
+        onAbrir={(m) => { setMontoApertura(m); setCajaAbierta(true); }}
+        onLogout={onLogout}
+      />
+    );
+  }
+
+  // Si está en cierre de caja
+  if (showCierre) {
+    return (
+      <CierreCaja
+        usuario={usuario}
+        montoApertura={montoApertura}
+        sales={misSales}
+        onCerrar={() => onLogout()}
+        onCancelar={() => setShowCierre(false)}
+      />
+    );
+  }
+
   return (
     <div style={{ minHeight:"100vh",background:T.bg,color:T.text,fontFamily:T.font,
       display:"flex",flexDirection:"column",maxWidth:480,margin:"0 auto",position:"relative" }}>
@@ -635,6 +967,11 @@ function VendedorPOS({ usuario, products, sales, onLogout }) {
           <div style={{ fontSize:15,fontWeight:700,color:T.text }}>👤 {usuario.nombre}</div>
         </div>
         <div style={{ display:"flex",gap:12,alignItems:"center" }}>
+          <button onClick={()=>setShowCierre(true)}
+            style={{ background:"#7c3aed",border:"none",borderRadius:8,
+              color:"#fff",padding:"6px 12px",cursor:"pointer",fontSize:12,fontFamily:T.font,fontWeight:600 }}>
+            Cerrar caja
+          </button>
           <button onClick={onLogout}
             style={{ background:"none",border:`1px solid ${T.border}`,borderRadius:8,
               color:T.muted,padding:"6px 12px",cursor:"pointer",fontSize:12,fontFamily:T.font }}>
@@ -1086,12 +1423,12 @@ function VendedorPOS({ usuario, products, sales, onLogout }) {
 // APP PRINCIPAL
 // ══════════════════════════════════════════════════════════════════════════════
 export default function App() {
-  const [usuario, setUsuario]     = useState(null); // null=login, {rol:'admin'|'vendedor', nombre}
+  const [usuario, setUsuario]     = useState(null);
   const [products, setProducts]   = useState(INITIAL_PRODUCTS);
   const [sales, setSales]         = useState([]);
   const [vendedores, setVendedores] = useState([]);
+  const [cajaMinima, setCajaMinima] = useState(0);
 
-  // Cargar productos desde Firebase
   useEffect(() => {
     const unsub = onSnapshot(collection(db,"products"), async (snap) => {
       if (snap.empty) {
@@ -1103,7 +1440,6 @@ export default function App() {
     return ()=>unsub();
   },[]);
 
-  // Cargar ventas desde Firebase
   useEffect(() => {
     const q = query(collection(db,"sales"),orderBy("dateTs","desc"));
     const unsub = onSnapshot(q,(snap)=>{
@@ -1112,7 +1448,6 @@ export default function App() {
     return ()=>unsub();
   },[]);
 
-  // Cargar vendedores desde Firebase
   useEffect(() => {
     const unsub = onSnapshot(collection(db,"vendedores"),(snap)=>{
       setVendedores(snap.docs.map(d=>({...d.data(),id:d.id})));
@@ -1120,10 +1455,18 @@ export default function App() {
     return ()=>unsub();
   },[]);
 
+  // Cargar config (caja mínima)
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db,"config","general"),(snap)=>{
+      if (snap.exists()) setCajaMinima(snap.data().cajaMinima || 0);
+    });
+    return ()=>unsub();
+  },[]);
+
   const saveProduct = async (p) => { await setDoc(doc(db,"products",p.id),p); };
   const deleteProduct = async (id) => { await deleteDoc(doc(db,"products",id)); };
+  const saveCajaMinima = async (m) => { await setDoc(doc(db,"config","general"),{cajaMinima:m}); };
 
-  // LOGIN
   if (!usuario) {
     return (
       <LoginScreen
@@ -1134,26 +1477,27 @@ export default function App() {
     );
   }
 
-  // ADMIN
   if (usuario.rol === "admin") {
     return (
       <AdminPanel
         products={products}
         sales={sales}
         vendedores={vendedores}
+        cajaMinima={cajaMinima}
         onLogout={() => setUsuario(null)}
         onSaveProduct={saveProduct}
         onDeleteProduct={deleteProduct}
+        onSaveCajaMinima={saveCajaMinima}
       />
     );
   }
 
-  // VENDEDOR
   return (
     <VendedorPOS
       usuario={usuario}
       products={products}
       sales={sales}
+      cajaMinima={cajaMinima}
       onLogout={() => setUsuario(null)}
     />
   );
