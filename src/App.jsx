@@ -1,5 +1,19 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Html5Qrcode } from "html5-qrcode";
+import { initializeApp } from "firebase/app";
+import { getFirestore, collection, doc, setDoc, addDoc, onSnapshot, deleteDoc, updateDoc, query, orderBy } from "firebase/firestore";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDa_pjlBYeRHnQP0hgjhwFwhhJTTMk9sn0",
+  authDomain: "pos-minimarket-7b084.firebaseapp.com",
+  projectId: "pos-minimarket-7b084",
+  storageBucket: "pos-minimarket-7b084.firebasestorage.app",
+  messagingSenderId: "98989222105",
+  appId: "1:98989222105:web:c0cd545b50f5fad3a3b6c8",
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
 
 const INITIAL_PRODUCTS = [
   { id: "7501234567890", name: "Paracetamol 500mg x20",  price: 2490, stock: 48, category: "Analgésicos" },
@@ -127,6 +141,7 @@ export default function POSTerminal() {
   const [scanMsg, setScanMsg]       = useState(null);
   const [manualCode, setManualCode] = useState("");
   const [barcodeSupported, setBarcodeSupported] = useState(true);
+  const [dbReady, setDbReady]       = useState(false);
 
   const [clientName, setClientName]   = useState("");
   const [clientPhone, setClientPhone] = useState("");
@@ -148,6 +163,31 @@ export default function POSTerminal() {
   const lastCodeRef = useRef("");
 
   useEffect(() => { setBarcodeSupported(true); }, []);
+
+  // ── Firebase: cargar productos en tiempo real ────────────────────────────
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "products"), async (snap) => {
+      if (snap.empty) {
+        // Primera vez: subir productos iniciales
+        for (const p of INITIAL_PRODUCTS) {
+          await setDoc(doc(db, "products", p.id), p);
+        }
+      } else {
+        setProducts(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+      }
+      setDbReady(true);
+    });
+    return () => unsub();
+  }, []);
+
+  // ── Firebase: cargar ventas en tiempo real ───────────────────────────────
+  useEffect(() => {
+    const q = query(collection(db, "sales"), orderBy("date", "desc"));
+    const unsub = onSnapshot(q, (snap) => {
+      setSales(snap.docs.map(d => ({ ...d.data(), fireId: d.id })));
+    });
+    return () => unsub();
+  }, []);
 
   const flash = (msg) => { setFlashMsg(msg); setTimeout(() => setFlashMsg(""), 2200); };
 
@@ -219,17 +259,19 @@ export default function POSTerminal() {
   }, [showScanner]);
 
   // ── Sale ────────────────────────────────────────────────────────────────
-  const completeSale = () => {
-    const id = String(++saleCounter);
+  const completeSale = async () => {
+    const id = String(Date.now());
     const sale = {
       id, date: now(),
+      dateTs: Date.now(),
       items: cart.map(i => ({ ...i })),
       subtotal, discountAmt, discount,
       total, payMethod,
       cashReceived: payMethod === "efectivo" ? Number(cashReceived) : null,
       clientName, clientPhone, clientEmail,
     };
-    setSales(prev => [sale, ...prev]);
+    // Guardar en Firebase
+    await addDoc(collection(db, "sales"), sale);
     setLastSale(sale);
     setCart([]);
     setClientName(""); setClientPhone(""); setClientEmail("");
@@ -273,13 +315,13 @@ export default function POSTerminal() {
   };
 
   // ── Inventory ────────────────────────────────────────────────────────────
-  const saveProduct = (p) => {
-    setProducts(prev => prev.find(x => x.id === p.id)
-      ? prev.map(x => x.id === p.id ? p : x)
-      : [p, ...prev]);
+  const saveProduct = async (p) => {
+    await setDoc(doc(db, "products", p.id), p);
     setEditProduct(null);
   };
-  const deleteProduct = (id) => setProducts(prev => prev.filter(x => x.id !== id));
+  const deleteProduct = async (id) => {
+    await deleteDoc(doc(db, "products", id));
+  };
 
   const filtered = products.filter(p =>
     p.name.toLowerCase().includes(search.toLowerCase()) ||
