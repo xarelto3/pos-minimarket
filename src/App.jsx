@@ -672,6 +672,16 @@ function AdminPanel({ products, sales, vendedores, cajaMinima, onLogout, onSaveP
   const [flashMsg, setFlashMsg] = useState("");
   const [newCajaMinima, setNewCajaMinima] = useState(String(cajaMinima));
   const [filtroPeriodo, setFiltroPeriodo] = useState("hoy");
+  const [pedidos, setPedidos] = useState([]);
+
+  // Cargar pedidos desde Firebase
+  useEffect(() => {
+    const q = query(collection(db,"pedidos"), orderBy("fechaTs","desc"));
+    const unsub = onSnapshot(q, snap => {
+      setPedidos(snap.docs.map(d=>({...d.data(),fireId:d.id})));
+    });
+    return ()=>unsub();
+  },[]);
 
   const filtrarPorPeriodo = (ventas, periodo) => {
     const ahora = new Date();
@@ -749,10 +759,10 @@ function AdminPanel({ products, sales, vendedores, cajaMinima, onLogout, onSaveP
       )}
 
       {/* Tabs */}
-      <div style={{ display:"flex",background:"#fff",borderBottom:`1px solid ${T.border}`,marginTop:12 }}>
-        {[["resumen","Resumen"],["inventario","Inventario"],["vendedores","Vendedores"],["historial","Historial"],["config","Config"]].map(([v,label]) => (
+      <div style={{ display:"flex",background:"#fff",borderBottom:`1px solid ${T.border}`,marginTop:12,overflowX:"auto" }}>
+        {[["resumen","Resumen"],["inventario","Inventario"],["vendedores","Vendedores"],["pedidos","Pedidos"],["historial","Historial"],["config","Config"]].map(([v,label]) => (
           <button key={v} onClick={() => setTab(v)} style={{
-            flex:1,padding:"11px 0",background:"none",border:"none",
+            flexShrink:0,padding:"11px 12px",background:"none",border:"none",
             borderBottom:tab===v?`2px solid ${T.admin}`:"2px solid transparent",
             color:tab===v?T.admin:T.muted,fontSize:10,fontWeight:tab===v?700:500,
             cursor:"pointer",fontFamily:T.font }}>
@@ -1102,6 +1112,124 @@ function AdminPanel({ products, sales, vendedores, cajaMinima, onLogout, onSaveP
                     alignItems:"center",justifyContent:"center" }}>
                   <TrashIcon />
                 </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── PEDIDOS ── */}
+        {tab==="pedidos" && (
+          <div>
+            <div style={{ fontSize:13,fontWeight:600,color:T.sub,marginBottom:14 }}>
+              📦 Pedidos recibidos — {pedidos.length} registros
+            </div>
+
+            {/* Resumen compras */}
+            {pedidos.length > 0 && (
+              <div style={{ background:"#fff",border:`1px solid ${T.border}`,borderRadius:12,
+                padding:"14px 16px",marginBottom:14,boxShadow:shadow }}>
+                <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:12 }}>
+                  Resumen de compras
+                </div>
+                <div style={{ display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:6 }}>
+                  <span style={{ color:T.muted }}>Total pedidos</span>
+                  <span style={{ fontWeight:700,color:T.text }}>{pedidos.length}</span>
+                </div>
+                <div style={{ display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:6 }}>
+                  <span style={{ color:T.muted }}>Total invertido</span>
+                  <span style={{ fontWeight:700,color:T.red }}>
+                    {fmt(pedidos.reduce((a,p)=>a+(p.montoFactura||p.totalCosto||0),0))}
+                  </span>
+                </div>
+                <div style={{ display:"flex",justifyContent:"space-between",fontSize:13 }}>
+                  <span style={{ color:T.muted }}>Unidades recibidas</span>
+                  <span style={{ fontWeight:700,color:T.text }}>
+                    {pedidos.reduce((a,p)=>a+(p.items?.reduce((b,i)=>b+i.qty,0)||0),0)}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {pedidos.length === 0 ? (
+              <div style={{ textAlign:"center",color:T.muted,marginTop:40,fontSize:13 }}>
+                <div style={{ fontSize:40,marginBottom:12 }}>📦</div>
+                Sin pedidos registrados aún
+              </div>
+            ) : pedidos.map(p => (
+              <div key={p.fireId} style={{ background:"#fff",border:`1px solid ${T.border}`,
+                borderRadius:12,padding:"14px 16px",marginBottom:12,boxShadow:shadow }}>
+
+                {/* Header pedido */}
+                <div style={{ display:"flex",justifyContent:"space-between",marginBottom:10 }}>
+                  <div>
+                    <div style={{ fontSize:14,fontWeight:700,color:T.text }}>
+                      🏢 {p.proveedor}
+                    </div>
+                    <div style={{ fontSize:12,color:T.muted,marginTop:2 }}>
+                      📋 Guía/Factura: <b style={{color:T.sub}}>{p.factura}</b>
+                    </div>
+                    <div style={{ fontSize:12,color:T.muted,marginTop:2 }}>
+                      👤 Recibió: {p.encargado} · {p.fecha}
+                    </div>
+                  </div>
+                  <div style={{ textAlign:"right" }}>
+                    <div style={{ fontSize:16,fontWeight:700,color:T.red }}>
+                      {fmt(p.montoFactura||p.totalCosto||0)}
+                    </div>
+                    <div style={{ fontSize:11,color:T.muted,marginTop:2 }}>factura</div>
+                  </div>
+                </div>
+
+                {/* Línea divisora */}
+                <div style={{ height:1,background:T.border,marginBottom:10 }} />
+
+                {/* Productos del pedido */}
+                <div style={{ fontSize:11,color:T.muted,fontWeight:600,marginBottom:8,
+                  letterSpacing:"0.05em",textTransform:"uppercase" }}>
+                  Productos recibidos
+                </div>
+                {p.items?.map((item,i) => (
+                  <div key={i} style={{ display:"flex",justifyContent:"space-between",
+                    alignItems:"center",padding:"6px 0",
+                    borderBottom:`1px solid ${T.border}`,fontSize:12 }}>
+                    <div style={{ flex:1,minWidth:0 }}>
+                      <div style={{ color:T.sub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>
+                        {item.name}
+                      </div>
+                      <div style={{ color:T.muted,fontSize:11,marginTop:1 }}>
+                        {item.id}
+                      </div>
+                    </div>
+                    <div style={{ textAlign:"right",flexShrink:0,marginLeft:10 }}>
+                      <div style={{ color:T.text,fontWeight:600 }}>
+                        x{item.qty} · {fmt(item.costo||0)} c/u
+                      </div>
+                      <div style={{ color:T.green,fontSize:11,fontWeight:600 }}>
+                        {fmt((item.costo||0)*item.qty)}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Total pedido */}
+                <div style={{ display:"flex",justifyContent:"space-between",
+                  padding:"10px 0 0",fontSize:13 }}>
+                  <span style={{ color:T.muted }}>
+                    {p.items?.reduce((a,i)=>a+i.qty,0)} unidades
+                  </span>
+                  <span style={{ fontWeight:700,color:T.red }}>
+                    Costo: {fmt(p.totalCosto||0)}
+                  </span>
+                </div>
+
+                {/* Alerta si no cuadra */}
+                {p.montoFactura > 0 && p.montoFactura !== p.totalCosto && (
+                  <div style={{ background:"#fffbeb",border:"1px solid #fde68a",
+                    borderRadius:8,padding:"8px 12px",marginTop:8,fontSize:11,
+                    color:T.yellow,fontWeight:500 }}>
+                    ⚠ Diferencia: {fmt(Math.abs(p.montoFactura - p.totalCosto))} entre factura y costo ingresado
+                  </div>
+                )}
               </div>
             ))}
           </div>
