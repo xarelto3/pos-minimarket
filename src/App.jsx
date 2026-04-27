@@ -33,6 +33,39 @@ const INITIAL_PRODUCTS = [
 const fmt = (n) => `$${Math.round(n).toLocaleString("es-CL")}`;
 const now = () => new Date().toLocaleString("es-CL", { day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit" });
 
+// ─── EXPORTAR CSV SII ──────────────────────────────────────
+function exportCSV(sales, periodo) {
+  const IVA = 0.19;
+  const rows = [
+    ["N° Boleta","Fecha","Vendedor","Neto","IVA 19%","Total","Medio de Pago","Productos"]
+  ];
+  sales.forEach(s => {
+    const neto = Math.round(s.total / (1 + IVA));
+    const iva  = s.total - neto;
+    const prods = s.items?.map(i => `${i.name} x${i.qty}`).join(" | ") || "";
+    rows.push([
+      s.id, s.date, s.vendedor || "-",
+      neto, iva, s.total,
+      s.payMethod, prods
+    ]);
+  });
+  // Totales
+  const totalNeto  = sales.reduce((a,s) => a + Math.round(s.total/(1+IVA)), 0);
+  const totalIVA   = sales.reduce((a,s) => a + (s.total - Math.round(s.total/(1+IVA))), 0);
+  const totalTotal = sales.reduce((a,s) => a + s.total, 0);
+  rows.push([]);
+  rows.push(["TOTALES","","", totalNeto, totalIVA, totalTotal, "", `${sales.length} boletas`]);
+
+  const csv = rows.map(r => r.map(c => `"${c}"`).join(",")).join("\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
+  a.download = `libro-ventas-${periodo}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function buildWAText(sale) {
   let msg = `*BOLETA N° ${sale.id}*\nFecha: ${sale.date}\n`;
   if (sale.vendedor) msg += `Vendedor: ${sale.vendedor}\n`;
@@ -433,6 +466,21 @@ function AdminPanel({ products, sales, vendedores, cajaMinima, onLogout, onSaveP
   const [search, setSearch]     = useState("");
   const [flashMsg, setFlashMsg] = useState("");
   const [newCajaMinima, setNewCajaMinima] = useState(String(cajaMinima));
+  const [filtroPeriodo, setFiltroPeriodo] = useState("hoy");
+
+  const filtrarPorPeriodo = (ventas, periodo) => {
+    const ahora = new Date();
+    const hoy = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate()).getTime();
+    const lunesTs = hoy - ((ahora.getDay() || 7) - 1) * 86400000;
+    const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1).getTime();
+    return ventas.filter(s => {
+      const ts = s.dateTs || 0;
+      if (periodo === "hoy")    return ts >= hoy;
+      if (periodo === "semana") return ts >= lunesTs;
+      if (periodo === "mes")    return ts >= inicioMes;
+      return true;
+    });
+  };
 
   const flash = (msg) => { setFlashMsg(msg); setTimeout(()=>setFlashMsg(""),2000); };
 
@@ -702,21 +750,81 @@ function AdminPanel({ products, sales, vendedores, cajaMinima, onLogout, onSaveP
         {/* ── HISTORIAL ADMIN ── */}
         {tab==="historial" && (
           <div>
-            <div style={{ fontSize:13,fontWeight:600,color:T.sub,marginBottom:14 }}>
-              Todas las ventas — {sales.length} registros
-            </div>
-            {sales.length === 0 ? (
-              <div style={{ textAlign:"center",color:T.muted,marginTop:40,fontSize:13 }}>
-                <div style={{ fontSize:40,marginBottom:12 }}>📋</div>Sin ventas aún
+            {/* Filtros y exportación */}
+            <div style={{ background:"#fff",border:`1px solid ${T.border}`,borderRadius:12,
+              padding:"14px 16px",marginBottom:16,boxShadow:shadow }}>
+              <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:12 }}>
+                📊 Exportar libro de ventas (SII)
               </div>
-            ) : sales.map(sale => (
+
+              {/* Período */}
+              <div style={{ fontSize:12,fontWeight:600,color:T.muted,marginBottom:8 }}>Período</div>
+              <div style={{ display:"flex",gap:7,marginBottom:14 }}>
+                {[["hoy","Hoy"],["semana","Esta semana"],["mes","Este mes"],["todo","Todo"]].map(([v,label]) => (
+                  <button key={v} onClick={() => setFiltroPeriodo(v)} style={{
+                    flex:1,padding:"9px 0",borderRadius:9,cursor:"pointer",fontFamily:T.font,
+                    fontSize:11,fontWeight:600,transition:"all 0.12s",
+                    border:filtroPeriodo===v?`2px solid ${T.admin}`:`2px solid ${T.border}`,
+                    background:filtroPeriodo===v?T.adminBg:"#fff",
+                    color:filtroPeriodo===v?T.admin:T.muted,
+                  }}>{label}</button>
+                ))}
+              </div>
+
+              {/* Resumen filtrado */}
+              {(() => {
+                const sf = filtrarPorPeriodo(sales, filtroPeriodo);
+                const IVA = 0.19;
+                const totalNeto = sf.reduce((a,s)=>a+Math.round(s.total/(1+IVA)),0);
+                const totalIVA  = sf.reduce((a,s)=>a+(s.total-Math.round(s.total/(1+IVA))),0);
+                return (
+                  <div style={{ background:T.adminBg,borderRadius:10,padding:"12px 14px",marginBottom:12 }}>
+                    <div style={{ display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:6 }}>
+                      <span style={{ color:T.muted }}>Boletas del período</span>
+                      <span style={{ fontWeight:700,color:T.text }}>{sf.length}</span>
+                    </div>
+                    <div style={{ display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:6 }}>
+                      <span style={{ color:T.muted }}>Neto</span>
+                      <span style={{ fontWeight:700,color:T.text }}>{fmt(totalNeto)}</span>
+                    </div>
+                    <div style={{ display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:6 }}>
+                      <span style={{ color:T.muted }}>IVA 19%</span>
+                      <span style={{ fontWeight:700,color:T.text }}>{fmt(totalIVA)}</span>
+                    </div>
+                    <div style={{ height:1,background:T.border,margin:"8px 0" }} />
+                    <div style={{ display:"flex",justifyContent:"space-between",fontSize:14 }}>
+                      <span style={{ fontWeight:600,color:T.admin }}>Total</span>
+                      <span style={{ fontWeight:800,color:T.admin }}>{fmt(sf.reduce((a,s)=>a+s.total,0))}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <button onClick={() => {
+                  const sf = filtrarPorPeriodo(sales, filtroPeriodo);
+                  exportCSV(sf, filtroPeriodo);
+                }}
+                style={{ ...adminBtn,width:"100%",padding:13,borderRadius:10,fontSize:14 }}>
+                ⬇ Descargar CSV para SII
+              </button>
+            </div>
+
+            {/* Lista ventas */}
+            <div style={{ fontSize:13,fontWeight:600,color:T.sub,marginBottom:12 }}>
+              {filtrarPorPeriodo(sales,filtroPeriodo).length} ventas · {filtroPeriodo}
+            </div>
+            {filtrarPorPeriodo(sales,filtroPeriodo).length===0 ? (
+              <div style={{ textAlign:"center",color:T.muted,marginTop:30,fontSize:13 }}>
+                <div style={{ fontSize:36,marginBottom:10 }}>📋</div>Sin ventas en este período
+              </div>
+            ) : filtrarPorPeriodo(sales,filtroPeriodo).map(sale => (
               <div key={sale.fireId||sale.id} style={{ background:"#fff",border:`1px solid ${T.border}`,
                 borderRadius:10,padding:"13px 15px",marginBottom:10,boxShadow:shadow }}>
                 <div style={{ display:"flex",justifyContent:"space-between",marginBottom:6 }}>
                   <div>
                     <div style={{ fontSize:11,color:T.muted }}>N° {sale.id}</div>
                     <div style={{ fontSize:11,color:T.muted }}>{sale.date}</div>
-                    {sale.vendedor && <div style={{ fontSize:12,color:T.admin,fontWeight:600,marginTop:2 }}>👤 {sale.vendedor}</div>}
+                    {sale.vendedor&&<div style={{ fontSize:12,color:T.admin,fontWeight:600,marginTop:2 }}>👤 {sale.vendedor}</div>}
                   </div>
                   <div style={{ textAlign:"right" }}>
                     <div style={{ fontSize:18,fontWeight:700,color:T.text }}>{fmt(sale.total)}</div>
