@@ -125,6 +125,211 @@ const LockIcon   = () => <Ico d={["M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2
 const UserIcon   = () => <Ico d={["M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2","M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"]} />;
 const AlertIcon  = () => <Ico d={["M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z","M12 9v4","M12 17h.01"]} />;
 
+
+// ══════════════════════════════════════════════════════════════════════════════
+// COMPONENTE RECEPCIÓN DE PEDIDO
+// ══════════════════════════════════════════════════════════════════════════════
+function RecepcionPedido({ usuario, products, onClose }) {
+  const [items, setItems]           = useState([]);
+  const [manualCode, setManualCode] = useState("");
+  const [showScanner, setShowScanner] = useState(false);
+  const [scanMsg, setScanMsg]       = useState(null);
+  const [factura, setFactura]       = useState("");
+  const [proveedor, setProveedor]   = useState("");
+  const [montoFactura, setMontoFactura] = useState("");
+  const [guardado, setGuardado]     = useState(false);
+  const [flashMsg, setFlashMsg]     = useState("");
+  const html5QrRef  = useRef(null);
+  const lastCodeRef = useRef("");
+  const flash = (msg) => { setFlashMsg(msg); setTimeout(()=>setFlashMsg(""),2000); };
+
+  const handleCode = useCallback((code) => {
+    if (code === lastCodeRef.current) return;
+    lastCodeRef.current = code;
+    setTimeout(()=>{ lastCodeRef.current = ""; },2500);
+    const prod = products.find(p=>p.id===code);
+    setItems(prev => {
+      const ex = prev.find(i=>i.id===code);
+      if (ex) return prev.map(i=>i.id===code?{...i,qty:i.qty+1}:i);
+      return [...prev, { id:code, name:prod?.name||`Código: ${code}`, qty:1, costo:prod?.cost||0, nuevo:!prod }];
+    });
+    setScanMsg({ ok:!!prod, text:prod?.name||`Nuevo: ${code}` });
+    flash(`✓ ${prod?.name||code}`);
+  },[products]);
+
+  const startScanner = async () => {
+    try {
+      const scanner = new Html5Qrcode("qr-recepcion");
+      html5QrRef.current = scanner;
+      await scanner.start({facingMode:"environment"},{fps:10,qrbox:{width:220,height:120}},
+        (code)=>handleCode(code),()=>{});
+    } catch { flash("❌ No se pudo acceder a la cámara"); }
+  };
+  const stopScanner = async () => {
+    if (html5QrRef.current) {
+      try { await html5QrRef.current.stop(); html5QrRef.current.clear(); } catch {}
+      html5QrRef.current = null;
+    }
+    setScanMsg(null);
+  };
+  useEffect(()=>{
+    if (showScanner) setTimeout(()=>startScanner(),300);
+    else stopScanner();
+    return ()=>{ stopScanner(); };
+  },[showScanner]);
+
+  const updateItem = (id,field,val) => setItems(prev=>prev.map(i=>i.id===id?{...i,[field]:val}:i));
+  const removeItem = (id) => setItems(prev=>prev.filter(i=>i.id!==id));
+  const totalCosto = items.reduce((a,i)=>a+(Number(i.costo)||0)*i.qty,0);
+
+  const confirmar = async () => {
+    if (items.length===0) { flash("⚠ Agrega al menos un producto"); return; }
+    for (const item of items) {
+      const prod = products.find(p=>p.id===item.id);
+      if (prod) {
+        await setDoc(doc(db,"products",item.id),{...prod,stock:(prod.stock||0)+item.qty,cost:Number(item.costo)||prod.cost||0});
+      } else {
+        await setDoc(doc(db,"products",item.id),{id:item.id,name:item.name,price:0,cost:Number(item.costo)||0,stock:item.qty,stockMin:5,category:"Sin categoría"});
+      }
+    }
+    await addDoc(collection(db,"pedidos"),{
+      fecha:now(), fechaTs:Date.now(), encargado:usuario.nombre,
+      proveedor:proveedor||"Sin especificar", factura:factura||"-",
+      montoFactura:Number(montoFactura)||0, items, totalCosto,
+    });
+    setGuardado(true);
+    setTimeout(()=>onClose(),2500);
+  };
+
+  if (guardado) return (
+    <div style={{ minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:T.font }}>
+      <div style={{ textAlign:"center" }}>
+        <div style={{ fontSize:60,marginBottom:16 }}>📦</div>
+        <div style={{ fontSize:20,fontWeight:700,color:T.green }}>¡Pedido recibido!</div>
+        <div style={{ fontSize:13,color:T.muted,marginTop:8 }}>Stock actualizado correctamente</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ minHeight:"100vh",background:T.bg,fontFamily:T.font,display:"flex",flexDirection:"column",maxWidth:480,margin:"0 auto" }}>
+      <style>{`*{box-sizing:border-box;margin:0;padding:0} input::placeholder{color:#9ca3af} input:focus{border-color:${T.accent}!important} @keyframes zoomIn{from{opacity:0;transform:scale(0.92)}to{opacity:1;transform:scale(1)}}`}</style>
+      {flashMsg&&(<div style={{ position:"fixed",top:14,left:"50%",transform:"translateX(-50%)",background:T.accent,color:"#fff",padding:"9px 18px",borderRadius:20,fontSize:13,fontWeight:600,zIndex:9999,whiteSpace:"nowrap",animation:"zoomIn 0.18s ease" }}>{flashMsg}</div>)}
+
+      <div style={{ background:"#059669",padding:"14px 16px",display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+        <div>
+          <div style={{ fontSize:11,color:"rgba(255,255,255,0.8)" }}>RECEPCIÓN DE MERCADERÍA</div>
+          <div style={{ fontSize:16,fontWeight:700,color:"#fff" }}>📦 {usuario.nombre}</div>
+        </div>
+        <button onClick={onClose} style={{ background:"rgba(255,255,255,0.2)",border:"none",borderRadius:9,color:"#fff",padding:"7px 14px",cursor:"pointer",fontSize:13,fontFamily:T.font }}>← Volver</button>
+      </div>
+
+      {showScanner&&(
+        <div style={{ position:"fixed",inset:0,background:"#000",zIndex:500,display:"flex",flexDirection:"column",maxWidth:480,margin:"0 auto" }}>
+          <div style={{ position:"absolute",top:0,left:0,right:0,zIndex:600,padding:"14px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",background:"rgba(0,0,0,0.75)" }}>
+            <span style={{ fontSize:14,color:"#fff",fontWeight:600 }}>📷 Escanear</span>
+            <button onClick={()=>setShowScanner(false)} style={{ background:"#ef4444",border:"none",borderRadius:12,color:"#fff",padding:"12px 22px",cursor:"pointer",fontSize:15,fontFamily:T.font,fontWeight:700 }}>✕ CERRAR</button>
+          </div>
+          <div style={{ marginTop:58,flex:1,background:"#000",overflow:"hidden" }}>
+            <div id="qr-recepcion" style={{ width:"100%" }} />
+          </div>
+          <div style={{ padding:16,background:"#fff" }}>
+            {scanMsg&&(<div style={{ padding:"12px 14px",borderRadius:10,marginBottom:12,background:scanMsg.ok?T.greenBg:"#fffbeb",border:`1px solid ${scanMsg.ok?"#a7f3d0":"#fde68a"}`,display:"flex",alignItems:"center",gap:10 }}><span style={{ fontSize:20 }}>{scanMsg.ok?"✅":"📦"}</span><div><div style={{ fontSize:12,fontWeight:600,color:scanMsg.ok?T.green:T.yellow }}>{scanMsg.ok?"Encontrado":"Nuevo producto"}</div><div style={{ fontSize:13,color:T.sub }}>{scanMsg.text}</div></div></div>)}
+            <div style={{ display:"flex",gap:8 }}>
+              <input value={manualCode} onChange={e=>setManualCode(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){handleCode(manualCode);setManualCode("");}}} placeholder="Código manual..." style={{ ...inputStyle,flex:1 }} />
+              <button onClick={()=>{handleCode(manualCode);setManualCode("");}} style={{ ...primaryBtn,width:46,height:46,borderRadius:10,fontSize:18,flexShrink:0 }}>→</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ flex:1,overflowY:"auto",padding:16 }}>
+        <div style={{ background:"#fff",border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px",marginBottom:14,boxShadow:"0 1px 3px rgba(0,0,0,0.08)" }}>
+          <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:12 }}>📋 Datos del pedido</div>
+          <div style={{ display:"flex",flexDirection:"column",gap:9 }}>
+            <input value={proveedor} onChange={e=>setProveedor(e.target.value)} placeholder="Proveedor / Distribuidor" style={inputStyle} />
+            <input value={factura} onChange={e=>setFactura(e.target.value)} placeholder="N° Factura / Guía de despacho" style={inputStyle} />
+            <input value={montoFactura} onChange={e=>setMontoFactura(e.target.value)} placeholder="Monto total factura $" type="number" style={inputStyle} />
+          </div>
+        </div>
+
+        <button onClick={()=>setShowScanner(true)} style={{ ...primaryBtn,width:"100%",padding:15,borderRadius:12,fontSize:14,fontWeight:600,marginBottom:10 }}>
+          📷 Escanear productos recibidos
+        </button>
+        <div style={{ display:"flex",gap:8,marginBottom:14 }}>
+          <input value={manualCode} onChange={e=>setManualCode(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){handleCode(manualCode);setManualCode("");}}} placeholder="O ingresa código manual..." style={{ ...inputStyle,flex:1 }} />
+          <button onClick={()=>{handleCode(manualCode);setManualCode("");}} style={{ ...primaryBtn,width:46,height:46,borderRadius:10,fontSize:18,flexShrink:0 }}>→</button>
+        </div>
+
+        {items.length===0 ? (
+          <div style={{ textAlign:"center",color:T.muted,marginTop:40,fontSize:13 }}>
+            <div style={{ fontSize:40,marginBottom:12 }}>📦</div>Escanea los productos del pedido
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize:12,color:T.muted,fontWeight:500,marginBottom:12 }}>
+              {items.length} productos · Costo total: <b style={{color:T.text}}>${totalCosto.toLocaleString("es-CL")}</b>
+            </div>
+            {items.map(item=>(
+              <div key={item.id} style={{ background:"#fff",border:`1px solid ${item.nuevo?T.yellow:T.border}`,borderRadius:10,padding:"12px 14px",marginBottom:10,boxShadow:"0 1px 3px rgba(0,0,0,0.08)" }}>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10 }}>
+                  <div style={{ flex:1,minWidth:0 }}>
+                    {item.nuevo&&(<span style={{ fontSize:9,color:T.yellow,fontWeight:700,background:"#fffbeb",padding:"2px 7px",borderRadius:20,marginBottom:4,display:"inline-block" }}>NUEVO</span>)}
+                    <div style={{ fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{item.name}</div>
+                    <div style={{ fontSize:11,color:T.muted }}>{item.id}</div>
+                  </div>
+                  <button onClick={()=>removeItem(item.id)} style={{ width:30,height:30,borderRadius:8,border:"none",background:T.redBg,color:T.red,cursor:"pointer",fontSize:14 }}>✕</button>
+                </div>
+                {item.nuevo&&(<input value={item.name.startsWith("Código:")?"":(item.name)} onChange={e=>updateItem(item.id,"name",e.target.value)} placeholder="Nombre del producto" style={{ ...inputStyle,marginBottom:8 }} />)}
+                <div style={{ display:"flex",gap:8 }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:11,color:T.muted,marginBottom:4 }}>Cantidad</div>
+                    <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                      <button onClick={()=>updateItem(item.id,"qty",Math.max(1,item.qty-1))} style={{ width:30,height:30,borderRadius:8,border:`1.5px solid ${T.border}`,background:"#fff",color:T.text,fontSize:16,cursor:"pointer" }}>−</button>
+                      <input type="number" value={item.qty} onChange={e=>updateItem(item.id,"qty",Number(e.target.value)||1)} style={{ ...inputStyle,width:55,textAlign:"center",padding:"8px 4px" }} />
+                      <button onClick={()=>updateItem(item.id,"qty",item.qty+1)} style={{ width:30,height:30,borderRadius:8,border:"none",background:T.accent,color:"#fff",fontSize:16,cursor:"pointer",fontWeight:700 }}>+</button>
+                    </div>
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:11,color:T.muted,marginBottom:4 }}>Costo unit. $</div>
+                    <input type="number" value={item.costo} onChange={e=>updateItem(item.id,"costo",Number(e.target.value)||0)} placeholder="$0" style={{ ...inputStyle,padding:"8px 10px" }} />
+                  </div>
+                </div>
+                <div style={{ fontSize:12,color:T.green,fontWeight:600,marginTop:8,textAlign:"right" }}>
+                  Subtotal: ${((Number(item.costo)||0)*item.qty).toLocaleString("es-CL")}
+                </div>
+              </div>
+            ))}
+
+            <div style={{ background:"#fff",border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px",marginBottom:16,boxShadow:"0 1px 3px rgba(0,0,0,0.08)" }}>
+              <div style={{ display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:6 }}>
+                <span style={{ color:T.muted }}>Total unidades</span>
+                <span style={{ fontWeight:700 }}>{items.reduce((a,i)=>a+i.qty,0)}</span>
+              </div>
+              <div style={{ display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:montoFactura?6:0 }}>
+                <span style={{ color:T.muted }}>Costo total</span>
+                <span style={{ fontWeight:700,color:T.red }}>${totalCosto.toLocaleString("es-CL")}</span>
+              </div>
+              {montoFactura&&(
+                <div style={{ display:"flex",justifyContent:"space-between",fontSize:13 }}>
+                  <span style={{ color:T.muted }}>Monto factura</span>
+                  <span style={{ fontWeight:700,color:Number(montoFactura)===totalCosto?T.green:T.yellow }}>
+                    ${Number(montoFactura).toLocaleString("es-CL")} {Number(montoFactura)!==totalCosto&&"⚠"}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <button onClick={confirmar} style={{ ...greenBtn,width:"100%",padding:16,borderRadius:12,fontSize:15,fontWeight:700 }}>
+              ✓ Confirmar recepción del pedido
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // COMPONENTE APERTURA DE CAJA
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1073,6 +1278,7 @@ function VendedorPOS({ usuario, products, sales, cajaMinima, onLogout }) {
   const [cajaAbierta, setCajaAbierta]   = useState(false);
   const [montoApertura, setMontoApertura] = useState(0);
   const [showCierre, setShowCierre]     = useState(false);
+  const [showRecepcion, setShowRecepcion] = useState(false);
   const [cart, setCart]           = useState([]);
   const [tab, setTab]             = useState("sale");
   const [search, setSearch]       = useState("");
@@ -1206,6 +1412,17 @@ function VendedorPOS({ usuario, products, sales, cajaMinima, onLogout }) {
     );
   }
 
+  // Si está en recepción de pedido
+  if (showRecepcion) {
+    return (
+      <RecepcionPedido
+        usuario={usuario}
+        products={products}
+        onClose={() => setShowRecepcion(false)}
+      />
+    );
+  }
+
   return (
     <div style={{ minHeight:"100vh",background:T.bg,color:T.text,fontFamily:T.font,
       display:"flex",flexDirection:"column",maxWidth:480,margin:"0 auto",position:"relative" }}>
@@ -1229,15 +1446,20 @@ function VendedorPOS({ usuario, products, sales, cajaMinima, onLogout }) {
           <div style={{ fontSize:11,color:T.muted,fontWeight:500 }}>POINT OF SALE</div>
           <div style={{ fontSize:15,fontWeight:700,color:T.text }}>👤 {usuario.nombre}</div>
         </div>
-        <div style={{ display:"flex",gap:12,alignItems:"center" }}>
+        <div style={{ display:"flex",gap:8,alignItems:"center" }}>
+          <button onClick={()=>setShowRecepcion(true)}
+            style={{ background:"#059669",border:"none",borderRadius:8,
+              color:"#fff",padding:"6px 10px",cursor:"pointer",fontSize:11,fontFamily:T.font,fontWeight:600 }}>
+            📦 Pedido
+          </button>
           <button onClick={()=>setShowCierre(true)}
             style={{ background:"#7c3aed",border:"none",borderRadius:8,
-              color:"#fff",padding:"6px 12px",cursor:"pointer",fontSize:12,fontFamily:T.font,fontWeight:600 }}>
+              color:"#fff",padding:"6px 10px",cursor:"pointer",fontSize:11,fontFamily:T.font,fontWeight:600 }}>
             Cerrar caja
           </button>
           <button onClick={onLogout}
             style={{ background:"none",border:`1px solid ${T.border}`,borderRadius:8,
-              color:T.muted,padding:"6px 12px",cursor:"pointer",fontSize:12,fontFamily:T.font }}>
+              color:T.muted,padding:"6px 10px",cursor:"pointer",fontSize:11,fontFamily:T.font }}>
             Salir
           </button>
           <div onClick={()=>cart.length&&setShowCheckout(true)}
