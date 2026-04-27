@@ -19,14 +19,14 @@ const db = getFirestore(firebaseApp);
 const ADMIN_PASS = "admin1234";
 
 const INITIAL_PRODUCTS = [
-  { id: "7501234567890", name: "Paracetamol 500mg x20",  price: 2490, stock: 48, stockMin: 5, category: "Analgésicos" },
-  { id: "7509876543210", name: "Ibuprofeno 400mg x10",   price: 3200, stock: 30, stockMin: 5, category: "Analgésicos" },
-  { id: "7501111111111", name: "Amoxicilina 500mg x21",  price: 5800, stock: 15, stockMin: 3, category: "Antibióticos" },
-  { id: "7502222222222", name: "Omeprazol 20mg x14",     price: 4100, stock: 22, stockMin: 5, category: "Gastro" },
-  { id: "7503333333333", name: "Loratadina 10mg x10",    price: 2900, stock: 35, stockMin: 5, category: "Alérgicos" },
-  { id: "7504444444444", name: "Metformina 850mg x30",   price: 3600, stock: 18, stockMin: 3, category: "Diabetes" },
-  { id: "7505555555555", name: "Vitamina C 1000mg x30",  price: 4800, stock: 40, stockMin: 5, category: "Vitaminas" },
-  { id: "7506666666666", name: "Alcohol 70° 500ml",      price: 1990, stock: 60, stockMin: 10, category: "Antisépticos" },
+  { id: "7501234567890", name: "Paracetamol 500mg x20",  price: 2490, cost: 1500, stock: 48, stockMin: 5, category: "Analgésicos" },
+  { id: "7509876543210", name: "Ibuprofeno 400mg x10",   price: 3200, cost: 2000, stock: 30, stockMin: 5, category: "Analgésicos" },
+  { id: "7501111111111", name: "Amoxicilina 500mg x21",  price: 5800, cost: 3800, stock: 15, stockMin: 3, category: "Antibióticos" },
+  { id: "7502222222222", name: "Omeprazol 20mg x14",     price: 4100, cost: 2600, stock: 22, stockMin: 5, category: "Gastro" },
+  { id: "7503333333333", name: "Loratadina 10mg x10",    price: 2900, cost: 1800, stock: 35, stockMin: 5, category: "Alérgicos" },
+  { id: "7504444444444", name: "Metformina 850mg x30",   price: 3600, cost: 2200, stock: 18, stockMin: 3, category: "Diabetes" },
+  { id: "7505555555555", name: "Vitamina C 1000mg x30",  price: 4800, cost: 3000, stock: 40, stockMin: 5, category: "Vitaminas" },
+  { id: "7506666666666", name: "Alcohol 70° 500ml",      price: 1990, cost: 1100, stock: 60, stockMin: 10, category: "Antisépticos" },
 ];
 
 // ─── HELPERS ───────────────────────────────────────────────
@@ -485,11 +485,6 @@ function AdminPanel({ products, sales, vendedores, cajaMinima, onLogout, onSaveP
   const flash = (msg) => { setFlashMsg(msg); setTimeout(()=>setFlashMsg(""),2000); };
 
   const productosAlerta = products.filter(p => p.stock <= (p.stockMin || 5));
-  const totalHoy = sales.reduce((s,x) => s+x.total, 0);
-  const ventasEfectivo = sales.filter(v=>v.payMethod==="efectivo").reduce((s,x)=>s+x.total,0);
-  const ventasDebito = sales.filter(v=>v.payMethod==="débito").reduce((s,x)=>s+x.total,0);
-  const ventasCredito = sales.filter(v=>v.payMethod==="crédito").reduce((s,x)=>s+x.total,0);
-  const ventasTransferencia = sales.filter(v=>v.payMethod==="transferencia").reduce((s,x)=>s+x.total,0);
 
   const addVendedor = async () => {
     if (!newVendedor.trim()) return;
@@ -564,65 +559,215 @@ function AdminPanel({ products, sales, vendedores, cajaMinima, onLogout, onSaveP
       <div style={{ flex:1,overflowY:"auto",padding:16 }}>
 
         {/* ── RESUMEN ── */}
-        {tab==="resumen" && (
-          <div>
-            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16 }}>
-              {[
-                ["Ventas hoy", sales.length, T.accent],
-                ["Total recaudado", fmt(totalHoy), T.green],
-                ["Productos activos", products.length, T.admin],
-                ["Alertas stock", productosAlerta.length, productosAlerta.length>0?T.yellow:T.green],
-              ].map(([label,val,color]) => (
-                <div key={label} style={{ background:"#fff",border:`1px solid ${T.border}`,
-                  borderRadius:12,padding:"14px 16px",boxShadow:shadow }}>
-                  <div style={{ fontSize:11,color:T.muted,fontWeight:500,marginBottom:6 }}>{label}</div>
-                  <div style={{ fontSize:22,fontWeight:700,color }}>{val}</div>
-                </div>
-              ))}
-            </div>
+        {/* ── DASHBOARD RENTABILIDAD ── */}
+        {tab==="resumen" && (() => {
+          const sf = filtrarPorPeriodo(sales, filtroPeriodo);
+          const IVA = 0.19;
+          const totalVentas   = sf.reduce((a,s)=>a+s.total,0);
+          const totalNeto     = sf.reduce((a,s)=>a+Math.round(s.total/(1+IVA)),0);
+          const totalIVA      = totalVentas - totalNeto;
 
-            {/* Desglose por medio de pago */}
-            <div style={{ background:"#fff",border:`1px solid ${T.border}`,borderRadius:12,
-              padding:"14px 16px",boxShadow:shadow,marginBottom:16 }}>
-              <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:12 }}>
-                Desglose por medio de pago
+          // Calcular costo y ganancia por venta
+          let totalCosto = 0;
+          const rankMap = {};
+          sf.forEach(sale => {
+            sale.items?.forEach(item => {
+              const prod = products.find(p=>p.id===item.id);
+              const costo = (prod?.cost || 0) * item.qty;
+              totalCosto += costo;
+              if (!rankMap[item.id]) rankMap[item.id] = { name:item.name, qty:0, venta:0, costo:0 };
+              rankMap[item.id].qty   += item.qty;
+              rankMap[item.id].venta += item.price * item.qty;
+              rankMap[item.id].costo += costo;
+            });
+          });
+          const totalGanancia = totalVentas - totalCosto;
+          const margenPct = totalVentas > 0 ? Math.round((totalGanancia/totalVentas)*100) : 0;
+
+          const ranking = Object.values(rankMap).sort((a,b)=>b.qty-a.qty);
+          const masVendidos = ranking.slice(0,5);
+          const sinRotacion = products.filter(p => !rankMap[p.id] && p.stock > 0);
+
+          // Ventas por hora (hoy)
+          const porHora = Array(24).fill(0);
+          sf.forEach(s => {
+            if (s.dateTs) {
+              const h = new Date(s.dateTs).getHours();
+              porHora[h] += s.total;
+            }
+          });
+          const maxHora = Math.max(...porHora, 1);
+          const horasActivas = porHora.map((v,h) => ({ h, v })).filter(x=>x.v>0);
+
+          return (
+            <div>
+              {/* Filtro período */}
+              <div style={{ display:"flex",gap:7,marginBottom:16 }}>
+                {[["hoy","Hoy"],["semana","Semana"],["mes","Mes"],["todo","Todo"]].map(([v,label])=>(
+                  <button key={v} onClick={()=>setFiltroPeriodo(v)} style={{
+                    flex:1,padding:"9px 0",borderRadius:9,cursor:"pointer",fontFamily:T.font,
+                    fontSize:11,fontWeight:600,
+                    border:filtroPeriodo===v?`2px solid ${T.admin}`:`2px solid ${T.border}`,
+                    background:filtroPeriodo===v?T.adminBg:"#fff",
+                    color:filtroPeriodo===v?T.admin:T.muted,
+                  }}>{label}</button>
+                ))}
               </div>
-              {[
-                ["💵 Efectivo", ventasEfectivo],
-                ["💳 Débito", ventasDebito],
-                ["💳 Crédito", ventasCredito],
-                ["📲 Transferencia", ventasTransferencia],
-              ].map(([label,val]) => (
-                <div key={label} style={{ display:"flex",justifyContent:"space-between",
-                  padding:"8px 0",borderBottom:`1px solid ${T.border}`,fontSize:13 }}>
-                  <span style={{ color:T.sub }}>{label}</span>
-                  <span style={{ fontWeight:700,color:val>0?T.text:T.muted }}>{fmt(val)}</span>
-                </div>
-              ))}
-            </div>
 
-            {/* Ventas por vendedor */}
-            {vendedores.length > 0 && (
+              {/* KPIs principales */}
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14 }}>
+                {[
+                  { label:"Ventas totales",  val:fmt(totalVentas),   color:T.accent },
+                  { label:"Ganancia neta",   val:fmt(totalGanancia), color:T.green  },
+                  { label:`Margen promedio`, val:`${margenPct}%`,    color:T.admin  },
+                  { label:"N° de boletas",   val:sf.length,          color:T.yellow },
+                ].map(({label,val,color})=>(
+                  <div key={label} style={{ background:"#fff",border:`1px solid ${T.border}`,
+                    borderRadius:12,padding:"14px 16px",boxShadow:shadow }}>
+                    <div style={{ fontSize:11,color:T.muted,fontWeight:500,marginBottom:6 }}>{label}</div>
+                    <div style={{ fontSize:22,fontWeight:800,color }}>{val}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desglose financiero */}
               <div style={{ background:"#fff",border:`1px solid ${T.border}`,borderRadius:12,
-                padding:"14px 16px",boxShadow:shadow }}>
+                padding:"14px 16px",marginBottom:14,boxShadow:shadow }}>
                 <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:12 }}>
-                  Ventas por vendedor (hoy)
+                  💰 Desglose financiero
                 </div>
-                {vendedores.map(v => {
-                  const total = sales.filter(s=>s.vendedor===v.nombre).reduce((a,x)=>a+x.total,0);
-                  const count = sales.filter(s=>s.vendedor===v.nombre).length;
+                {[
+                  ["Ventas brutas",    fmt(totalVentas),   T.text  ],
+                  ["Costo mercadería", fmt(totalCosto),    T.red   ],
+                  ["IVA 19%",          fmt(totalIVA),      T.muted ],
+                  ["Neto s/IVA",       fmt(totalNeto),     T.muted ],
+                ].map(([label,val,color])=>(
+                  <div key={label} style={{ display:"flex",justifyContent:"space-between",
+                    padding:"7px 0",borderBottom:`1px solid ${T.border}`,fontSize:13 }}>
+                    <span style={{ color:T.muted }}>{label}</span>
+                    <span style={{ fontWeight:700,color }}>{val}</span>
+                  </div>
+                ))}
+                <div style={{ display:"flex",justifyContent:"space-between",padding:"10px 0",fontSize:14 }}>
+                  <span style={{ fontWeight:700,color:T.green }}>✓ Ganancia neta</span>
+                  <span style={{ fontWeight:800,color:T.green,fontSize:18 }}>{fmt(totalGanancia)}</span>
+                </div>
+              </div>
+
+              {/* Ventas por medio de pago */}
+              <div style={{ background:"#fff",border:`1px solid ${T.border}`,borderRadius:12,
+                padding:"14px 16px",marginBottom:14,boxShadow:shadow }}>
+                <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:12 }}>
+                  💳 Por medio de pago
+                </div>
+                {[["efectivo","💵"],["débito","💳"],["crédito","💳"],["transferencia","📲"]].map(([m,ico])=>{
+                  const v = sf.filter(s=>s.payMethod===m).reduce((a,x)=>a+x.total,0);
                   return (
-                    <div key={v.id} style={{ display:"flex",justifyContent:"space-between",
-                      padding:"8px 0",borderBottom:`1px solid ${T.border}`,fontSize:13 }}>
-                      <span style={{ color:T.sub }}>👤 {v.nombre}</span>
-                      <span style={{ color:T.muted,fontSize:12 }}>{count} venta(s) · <b style={{color:T.text}}>{fmt(total)}</b></span>
+                    <div key={m} style={{ display:"flex",justifyContent:"space-between",
+                      padding:"7px 0",borderBottom:`1px solid ${T.border}`,fontSize:13 }}>
+                      <span style={{ color:T.sub,textTransform:"capitalize" }}>{ico} {m}</span>
+                      <span style={{ fontWeight:700,color:v>0?T.text:T.muted }}>{fmt(v)}</span>
                     </div>
                   );
                 })}
               </div>
-            )}
-          </div>
-        )}
+
+              {/* Top productos más vendidos */}
+              {masVendidos.length > 0 && (
+                <div style={{ background:"#fff",border:`1px solid ${T.border}`,borderRadius:12,
+                  padding:"14px 16px",marginBottom:14,boxShadow:shadow }}>
+                  <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:12 }}>
+                    🏆 Más vendidos
+                  </div>
+                  {masVendidos.map((p,i)=>{
+                    const gan = p.venta - p.costo;
+                    const mgn = p.venta > 0 ? Math.round((gan/p.venta)*100) : 0;
+                    return (
+                      <div key={p.name} style={{ display:"flex",alignItems:"center",gap:10,
+                        padding:"8px 0",borderBottom:`1px solid ${T.border}` }}>
+                        <div style={{ width:24,height:24,borderRadius:"50%",
+                          background:i===0?"#fbbf24":i===1?"#9ca3af":i===2?"#92400e":T.accentBg,
+                          display:"flex",alignItems:"center",justifyContent:"center",
+                          fontSize:11,fontWeight:700,color:"#fff",flexShrink:0 }}>
+                          {i+1}
+                        </div>
+                        <div style={{ flex:1,minWidth:0 }}>
+                          <div style={{ fontSize:12,fontWeight:600,color:T.text,
+                            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>
+                            {p.name}
+                          </div>
+                          <div style={{ fontSize:11,color:T.muted,marginTop:2 }}>
+                            {p.qty} unid · Ganancia: {fmt(gan)} · Margen: {mgn}%
+                          </div>
+                        </div>
+                        <div style={{ fontSize:14,fontWeight:700,color:T.green,flexShrink:0 }}>
+                          {fmt(p.venta)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Productos sin rotación */}
+              {sinRotacion.length > 0 && (
+                <div style={{ background:"#fff",border:`1px solid ${T.yellow}`,borderRadius:12,
+                  padding:"14px 16px",marginBottom:14,boxShadow:shadow }}>
+                  <div style={{ fontSize:13,fontWeight:700,color:T.yellow,marginBottom:12 }}>
+                    🐌 Sin rotación en este período ({sinRotacion.length})
+                  </div>
+                  {sinRotacion.slice(0,5).map(p=>(
+                    <div key={p.id} style={{ display:"flex",justifyContent:"space-between",
+                      padding:"7px 0",borderBottom:`1px solid ${T.border}`,fontSize:12 }}>
+                      <span style={{ color:T.sub }}>{p.name.substring(0,28)}</span>
+                      <span style={{ color:T.muted }}>Stock: {p.stock}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Ventas por vendedor */}
+              {vendedores.length > 0 && (
+                <div style={{ background:"#fff",border:`1px solid ${T.border}`,borderRadius:12,
+                  padding:"14px 16px",marginBottom:14,boxShadow:shadow }}>
+                  <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:12 }}>
+                    👤 Por vendedor
+                  </div>
+                  {vendedores.map(v=>{
+                    const vv = sf.filter(s=>s.vendedor===v.nombre);
+                    const tot = vv.reduce((a,x)=>a+x.total,0);
+                    return (
+                      <div key={v.id} style={{ display:"flex",justifyContent:"space-between",
+                        padding:"7px 0",borderBottom:`1px solid ${T.border}`,fontSize:13 }}>
+                        <span style={{ color:T.sub }}>👤 {v.nombre}</span>
+                        <span style={{ color:T.muted,fontSize:12 }}>
+                          {vv.length} venta(s) · <b style={{color:T.text}}>{fmt(tot)}</b>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Alertas stock */}
+              {productosAlerta.length > 0 && (
+                <div style={{ background:T.redBg,border:`1px solid #fecaca`,borderRadius:12,
+                  padding:"14px 16px",boxShadow:shadow }}>
+                  <div style={{ fontSize:13,fontWeight:700,color:T.red,marginBottom:8 }}>
+                    ⚠ Stock bajo — {productosAlerta.length} producto(s)
+                  </div>
+                  {productosAlerta.map(p=>(
+                    <div key={p.id} style={{ display:"flex",justifyContent:"space-between",
+                      padding:"5px 0",fontSize:12 }}>
+                      <span style={{ color:T.sub }}>{p.name.substring(0,28)}</span>
+                      <span style={{ color:T.red,fontWeight:600 }}>{p.stock} unid</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* ── INVENTARIO ── */}
         {tab==="inventario" && (
@@ -653,12 +798,22 @@ function AdminPanel({ products, sales, vendedores, cajaMinima, onLogout, onSaveP
                     placeholder="Categoría" style={inputStyle} />
                   <div style={{ display:"flex",gap:8 }}>
                     <input value={editProduct.price} onChange={e=>setEditProduct(p=>({...p,price:Number(e.target.value)}))}
-                      placeholder="Precio $" type="number" style={inputStyle} />
+                      placeholder="Precio venta $" type="number" style={inputStyle} />
+                    <input value={editProduct.cost||""} onChange={e=>setEditProduct(p=>({...p,cost:Number(e.target.value)}))}
+                      placeholder="Precio costo $" type="number" style={inputStyle} />
+                  </div>
+                  {editProduct.price > 0 && editProduct.cost > 0 && (
+                    <div style={{ background:T.greenBg,border:`1px solid #a7f3d0`,borderRadius:9,
+                      padding:"8px 12px",fontSize:12,color:T.green,fontWeight:500 }}>
+                      Margen: {fmt(editProduct.price - editProduct.cost)} ({Math.round(((editProduct.price-editProduct.cost)/editProduct.price)*100)}%)
+                    </div>
+                  )}
+                  <div style={{ display:"flex",gap:8 }}>
                     <input value={editProduct.stock} onChange={e=>setEditProduct(p=>({...p,stock:Number(e.target.value)}))}
                       placeholder="Stock" type="number" style={inputStyle} />
+                    <input value={editProduct.stockMin||5} onChange={e=>setEditProduct(p=>({...p,stockMin:Number(e.target.value)}))}
+                      placeholder="Stock mínimo" type="number" style={inputStyle} />
                   </div>
-                  <input value={editProduct.stockMin||5} onChange={e=>setEditProduct(p=>({...p,stockMin:Number(e.target.value)}))}
-                    placeholder="Stock mínimo (alerta)" type="number" style={inputStyle} />
                   <div style={{ display:"flex",gap:8,marginTop:4 }}>
                     <button onClick={() => { onSaveProduct(editProduct); setEditProduct(null); flash("✓ Guardado"); }}
                       style={{ ...greenBtn,flex:1,padding:12,borderRadius:10,fontSize:14 }}>Guardar</button>
