@@ -33,7 +33,28 @@ const INITIAL_PRODUCTS = [
 const fmt = (n) => `$${Math.round(n).toLocaleString("es-CL")}`;
 const now = () => new Date().toLocaleString("es-CL", { day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit" });
 
-// ─── EXPORTAR CSV SII ──────────────────────────────────────
+// ─── OFFLINE SYNC ──────────────────────────────────────────
+const OFFLINE_KEY = "pos_offline_sales";
+
+function saveOfflineSale(sale) {
+  try {
+    const pending = JSON.parse(localStorage.getItem(OFFLINE_KEY)||"[]");
+    pending.push(sale);
+    localStorage.setItem(OFFLINE_KEY, JSON.stringify(pending));
+  } catch {}
+}
+
+async function syncOfflineSales() {
+  try {
+    const pending = JSON.parse(localStorage.getItem(OFFLINE_KEY)||"[]");
+    if (pending.length === 0) return;
+    for (const sale of pending) {
+      await addDoc(collection(db,"sales"), sale);
+    }
+    localStorage.removeItem(OFFLINE_KEY);
+    console.log(`✓ Sincronizadas ${pending.length} ventas offline`);
+  } catch {}
+}
 function exportCSV(sales, periodo) {
   const IVA = 0.19;
   const rows = [
@@ -465,7 +486,8 @@ function CierreCaja({ usuario, montoApertura, sales, onCerrar, onCancelar }) {
       <div style={{ textAlign:"center" }}>
         <div style={{ fontSize:60, marginBottom:16 }}>✅</div>
         <div style={{ fontSize:20, fontWeight:700, color:T.green }}>¡Caja cerrada!</div>
-        <div style={{ fontSize:13, color:T.muted, marginTop:8 }}>Hasta pronto {usuario.nombre}</div>
+        <div style={{ fontSize:13, color:T.muted, marginTop:8 }}>Resumen guardado correctamente</div>
+        <div style={{ fontSize:12, color:T.muted, marginTop:4 }}>Volviendo a apertura de caja...</div>
       </div>
     </div>
   );
@@ -1424,6 +1446,18 @@ function VendedorPOS({ usuario, products, sales, cajaMinima, onLogout }) {
   const [payMethod, setPayMethod]       = useState("efectivo");
   const [cashReceived, setCashReceived] = useState("");
   const [scanActive, setScanActive]     = useState(false);
+  const [isOnline, setIsOnline]         = useState(navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline  = () => { setIsOnline(true);  syncOfflineSales(); };
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener("online",  handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online",  handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   const html5QrRef  = useRef(null);
   const lastCodeRef = useRef("");
@@ -1489,7 +1523,15 @@ function VendedorPOS({ usuario, products, sales, cajaMinima, onLogout }) {
       clientName, clientPhone, clientEmail,
       vendedor: usuario.nombre,
     };
-    await addDoc(collection(db,"sales"), sale);
+    // Intentar guardar en Firebase, si falla guardar offline
+    try {
+      await addDoc(collection(db,"sales"), sale);
+      // Sincronizar ventas offline pendientes
+      await syncOfflineSales();
+    } catch {
+      saveOfflineSale(sale);
+      flash("⚠ Sin internet — venta guardada localmente");
+    }
     setLastSale(sale);
     setCart([]);
     setClientName(""); setClientPhone(""); setClientEmail("");
@@ -1534,7 +1576,13 @@ function VendedorPOS({ usuario, products, sales, cajaMinima, onLogout }) {
         usuario={usuario}
         montoApertura={montoApertura}
         sales={misSales}
-        onCerrar={() => onLogout()}
+        onCerrar={() => {
+          // Reset caja - vuelve a apertura, no logout
+          setCajaAbierta(false);
+          setMontoApertura(0);
+          setShowCierre(false);
+          setCart([]);
+        }}
         onCancelar={() => setShowCierre(false)}
       />
     );
@@ -1571,7 +1619,14 @@ function VendedorPOS({ usuario, products, sales, cajaMinima, onLogout }) {
         display:"flex",alignItems:"center",justifyContent:"space-between",
         position:"sticky",top:0,zIndex:200,boxShadow:"0 1px 4px rgba(0,0,0,0.06)" }}>
         <div>
-          <div style={{ fontSize:11,color:T.muted,fontWeight:500 }}>POINT OF SALE</div>
+          <div style={{ fontSize:11,color:T.muted,fontWeight:500,display:"flex",alignItems:"center",gap:5 }}>
+            POINT OF SALE
+            <span style={{ fontSize:9,padding:"2px 6px",borderRadius:10,fontWeight:700,
+              background:isOnline?"#dcfce7":"#fef3c7",
+              color:isOnline?T.green:T.yellow }}>
+              {isOnline?"● EN LÍNEA":"● SIN INTERNET"}
+            </span>
+          </div>
           <div style={{ fontSize:15,fontWeight:700,color:T.text }}>👤 {usuario.nombre}</div>
         </div>
         <div style={{ display:"flex",gap:8,alignItems:"center" }}>
