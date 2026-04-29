@@ -15,6 +15,110 @@ const firebaseConfig = {
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 
+// ─── CÓDIGO MAESTRO ────────────────────────────────────────
+const MASTER_CODE = "JUAN2024"; // Solo Juan lo sabe — cambia esto para cada cliente
+
+// ══════════════════════════════════════════════════════════════
+// PANTALLA DE CÓDIGO DE LOCAL
+// ══════════════════════════════════════════════════════════════
+function CodigoAcceso({ onAcceso }) {
+  const [codigo, setCodigo] = useState("");
+  const [error, setError]   = useState("");
+  const [intentos, setIntentos] = useState(0);
+
+  const verificar = async () => {
+    // Verificar contra Firebase (código configurable por maestro)
+    try {
+      const snap = await getDocs(collection(db, "config"));
+      let codigoActivo = MASTER_CODE;
+      snap.forEach(d => {
+        if (d.id === "general" && d.data().codigoLocal) {
+          codigoActivo = d.data().codigoLocal;
+        }
+      });
+      if (codigo.toUpperCase() === codigoActivo.toUpperCase()) {
+        localStorage.setItem("pos_codigo_ok", codigoActivo);
+        onAcceso();
+      } else {
+        const nuevos = intentos + 1;
+        setIntentos(nuevos);
+        setError(nuevos >= 3 ? "Demasiados intentos. Contacta al administrador del sistema." : "Código incorrecto. Verifica e intenta nuevamente.");
+        setCodigo("");
+      }
+    } catch {
+      // Si no hay conexión, verificar localmente
+      const cached = localStorage.getItem("pos_codigo_ok");
+      if (cached && codigo.toUpperCase() === cached.toUpperCase()) {
+        onAcceso();
+      } else if (codigo.toUpperCase() === MASTER_CODE.toUpperCase()) {
+        localStorage.setItem("pos_codigo_ok", MASTER_CODE);
+        onAcceso();
+      } else {
+        setError("Sin conexión. Verifica el código e intenta.");
+        setCodigo("");
+      }
+    }
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", background:`linear-gradient(135deg, #0F3460, #16213E)`,
+      display:"flex", alignItems:"center", justifyContent:"center",
+      padding:20, fontFamily:T.font }}>
+      <div style={{ background:"#fff", borderRadius:20, padding:32,
+        width:"100%", maxWidth:380, boxShadow:"0 25px 60px rgba(0,0,0,0.35)" }}>
+
+        <div style={{ textAlign:"center", marginBottom:28 }}>
+          <div style={{ fontSize:52, marginBottom:12 }}>🏪</div>
+          <div style={{ fontSize:22, fontWeight:800, color:T.text, letterSpacing:"-0.02em" }}>
+            Terminal POS
+          </div>
+          <div style={{ fontSize:13, color:T.muted, marginTop:6 }}>
+            Sistema de Gestión Comercial
+          </div>
+        </div>
+
+        {/* Línea dorada */}
+        <div style={{ height:2, background:"linear-gradient(90deg,#C9A84C,#E8C56A,#C9A84C)",
+          borderRadius:2, marginBottom:24 }} />
+
+        <div style={{ marginBottom:16 }}>
+          <div style={{ fontSize:13, fontWeight:600, color:T.sub, marginBottom:8 }}>
+            🔑 Código de acceso
+          </div>
+          <input
+            value={codigo}
+            onChange={e => { setCodigo(e.target.value.toUpperCase()); setError(""); }}
+            onKeyDown={e => e.key==="Enter" && verificar()}
+            placeholder="Ingresa el código del local"
+            type="password"
+            style={{ ...inputStyle, fontSize:16, fontWeight:700,
+              textAlign:"center", letterSpacing:"0.2em" }}
+            autoFocus
+          />
+        </div>
+
+        {error && (
+          <div style={{ background:T.redBg, border:`1px solid #fecaca`,
+            borderRadius:10, padding:"10px 14px", marginBottom:14,
+            fontSize:12, color:T.red, fontWeight:500, textAlign:"center" }}>
+            ⚠ {error}
+          </div>
+        )}
+
+        <button onClick={verificar}
+          style={{ ...primaryBtn, width:"100%", padding:16, borderRadius:12,
+            fontSize:15, fontWeight:700 }}>
+          Ingresar al sistema
+        </button>
+
+        <div style={{ textAlign:"center", marginTop:16, fontSize:11, color:T.muted }}>
+          ¿No tienes código? Contacta a tu proveedor del sistema.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── CONSTANTES ────────────────────────────────────────────
 const ADMIN_PASS = "admin1234";
 
@@ -1351,6 +1455,40 @@ function AdminPanel({ products, sales, vendedores, cajaMinima, onLogout, onSaveP
         {/* ── CONFIG ── */}
         {tab==="config" && (
           <div>
+            {/* Código de acceso */}
+            <div style={{ background:"#fff",border:`2px solid ${T.accent}`,borderRadius:12,
+              padding:"14px 16px",marginBottom:16,boxShadow:shadow }}>
+              <div style={{ fontSize:13,fontWeight:700,color:T.accent,marginBottom:4 }}>
+                🔑 Código de acceso del local
+              </div>
+              <div style={{ fontSize:12,color:T.muted,marginBottom:12 }}>
+                Cambia este código para revocar o renovar el acceso al sistema. Al cambiar, todos los dispositivos deberán ingresar el nuevo código.
+              </div>
+              <input
+                type="text"
+                placeholder="Nuevo código (ej: MINI2025)"
+                style={{ ...inputStyle, marginBottom:10, fontWeight:700, letterSpacing:"0.15em" }}
+                id="nuevo-codigo-input"
+                onChange={e => { e.target.value = e.target.value.toUpperCase(); }}
+              />
+              <button onClick={async () => {
+                  const input = document.getElementById("nuevo-codigo-input");
+                  const nuevoCode = input.value.trim().toUpperCase();
+                  if (!nuevoCode || nuevoCode.length < 4) { flash("⚠ El código debe tener al menos 4 caracteres"); return; }
+                  await setDoc(doc(db,"config","general"),{ cajaMinima: Number(newCajaMinima)||0, codigoLocal: nuevoCode });
+                  localStorage.removeItem("pos_codigo_ok");
+                  flash(`✓ Código actualizado: ${nuevoCode}`);
+                  input.value = "";
+                }}
+                style={{ ...adminBtn,width:"100%",padding:12,borderRadius:10,fontSize:14 }}>
+                🔑 Actualizar código de acceso
+              </button>
+              <div style={{ fontSize:11,color:T.red,marginTop:8,textAlign:"center",fontWeight:500 }}>
+                ⚠ Al cambiar el código, los dispositivos actuales deberán ingresar el nuevo código para continuar.
+              </div>
+            </div>
+
+            {/* Monto mínimo caja */}
             <div style={{ background:"#fff",border:`1px solid ${T.border}`,borderRadius:12,
               padding:"14px 16px",marginBottom:16,boxShadow:shadow }}>
               <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:4 }}>
@@ -2091,6 +2229,7 @@ function VendedorPOS({ usuario, products, sales, cajaMinima, onLogout }) {
 // APP PRINCIPAL
 // ══════════════════════════════════════════════════════════════════════════════
 export default function App() {
+  const [codigoOk, setCodigoOk]   = useState(!!localStorage.getItem("pos_codigo_ok"));
   const [usuario, setUsuario]     = useState(null);
   const [products, setProducts]   = useState(INITIAL_PRODUCTS);
   const [sales, setSales]         = useState([]);
@@ -2134,7 +2273,16 @@ export default function App() {
   const saveProduct = async (p) => { await setDoc(doc(db,"products",p.id),p); };
   const deleteProduct = async (id) => { await deleteDoc(doc(db,"products",id)); };
   const saveCajaMinima = async (m) => { await setDoc(doc(db,"config","general"),{cajaMinima:m}); };
+  const saveCodigo = async (c) => {
+    await setDoc(doc(db,"config","general"),{ cajaMinima, codigoLocal: c.toUpperCase() });
+  };
 
+  // Pantalla 1 — Código de acceso del local
+  if (!codigoOk) {
+    return <CodigoAcceso onAcceso={() => setCodigoOk(true)} />;
+  }
+
+  // Pantalla 2 — Login vendedor/admin
   if (!usuario) {
     return (
       <LoginScreen
