@@ -40,18 +40,17 @@ Formato: nombre del plato, ingredientes en lista corta, preparación en 3 pasos.
 };
 
 async function askGenie(modo, messages) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetch("/api/genio", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1000,
       system: SYSTEM_PROMPTS[modo],
       messages,
     }),
   });
   const data = await res.json();
-  return data.content?.[0]?.text || "El genio está pensando... 🧞";
+  if (!res.ok) throw new Error(data.error || "Error del servidor");
+  return data.text || "El genio está pensando... 🧞";
 }
 
 export default function GenioPOS() {
@@ -84,10 +83,10 @@ export default function GenioPOS() {
         ...c,
         [modo]: [...newMsgs, { role: "assistant", content: reply }],
       }));
-    } catch {
+    } catch (e) {
       setChats(c => ({
         ...c,
-        [modo]: [...newMsgs, { role: "assistant", content: "⚡ Error de conexión. Inténtalo de nuevo." }],
+        [modo]: [...newMsgs, { role: "assistant", content: `⚡ Error: ${e.message}` }],
       }));
     }
     setLoading(false);
