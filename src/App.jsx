@@ -1,3 +1,4 @@
+import GenioPOS from "./genio-pos";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { initializeApp } from "firebase/app";
@@ -2309,12 +2310,15 @@ export default function App() {
   }
 
   return (
-    <VendedorPOS
-      usuario={usuario}
-      products={products}
-      sales={sales}
-      cajaMinima={cajaMinima}
-      onLogout={() => setUsuario(null)}
-    />
+    <>
+      <VendedorPOS
+        usuario={usuario}
+        products={products}
+        sales={sales}
+        cajaMinima={cajaMinima}
+        onLogout={() => setUsuario(null)}
+      />
+      <GenioPOS />
+    </>
   );
 }
