@@ -1,10 +1,16 @@
 export default async function handler(req, res) {
-  // Solo POST
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   const { system, messages } = req.body;
+
+  if (!process.env.ANTHROPIC_KEY) {
+    return res.status(500).json({ error: "API key no configurada" });
+  }
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -15,7 +21,7 @@ export default async function handler(req, res) {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 1000,
         system,
         messages,
@@ -25,7 +31,8 @@ export default async function handler(req, res) {
     const data = await response.json();
 
     if (!response.ok) {
-      return res.status(response.status).json({ error: data });
+      const msg = data?.error?.message || JSON.stringify(data);
+      return res.status(response.status).json({ error: msg });
     }
 
     return res.status(200).json({ text: data.content?.[0]?.text || "" });
