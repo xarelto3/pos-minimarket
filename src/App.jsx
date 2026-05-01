@@ -2310,6 +2310,7 @@ export default function App() {
   }
 
   return (
+  <ControlMaestro>
     <>
       <VendedorPOS
         usuario={usuario}
@@ -2320,5 +2321,6 @@ export default function App() {
       />
       <GenioPOS />
     </>
-  );
+  </ControlMaestro>
+);
 }
