@@ -17,7 +17,8 @@ const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 
 // ─── CÓDIGO MAESTRO ────────────────────────────────────────
-const MASTER_CODE = "JUAN2024"; // Solo Juan lo sabe — cambia esto para cada cliente
+const MASTER_CODE = "JUAN2024"; // Solo Juan lo sabe — cambia esto para cada cliente 
+const [verClientes, setVerClientes] = React.useState(false);
 const CLIENTES_INICIALES = [
   {
     id: "luchin",
@@ -2570,7 +2571,7 @@ export default function App() {
         onLogout={() => setUsuario(null)}
       />
       <GenioPOS /> 
-      <PanelClientes onCerrar={() => {}} />
+      {verClientes && <PanelClientes onCerrar={() => setVerClientes(false)} />}
     </>
   </ControlMaestro>
 );
