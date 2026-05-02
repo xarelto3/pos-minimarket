@@ -1,4 +1,5 @@
-import GenioPOS from "./genio-pos";
+import GenioPOS from "./genio-pos"; 
+import PanelClientes from "./panel-clientes-v2";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { initializeApp } from "firebase/app";
@@ -2571,7 +2572,8 @@ export default function App() {
         onLogout={() => setUsuario(null)}
       />
       <GenioPOS /> 
-      {verClientes && <PanelClientes onCerrar={() => setVerClientes(false)} />}
+      {verClientes && <PanelClientes onCerrar={() => setVerClientes(false)} />} 
+      <PanelClientes />
     </>
   </ControlMaestro>
 );
