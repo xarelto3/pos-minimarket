@@ -2569,7 +2569,8 @@ export default function App() {
         cajaMinima={cajaMinima}
         onLogout={() => setUsuario(null)}
       />
-      <GenioPOS />
+      <GenioPOS /> 
+      <PanelClientes onCerrar={() => {}} />
     </>
   </ControlMaestro>
 );
