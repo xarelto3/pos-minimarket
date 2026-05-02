@@ -19,23 +19,10 @@ const db = getFirestore(firebaseApp);
 
 // ─── CÓDIGO MAESTRO ────────────────────────────────────────
 const MASTER_CODE = "JUAN2024"; // Solo Juan lo sabe — cambia esto para cada cliente 
-const [verClientes, setVerClientes] = React.useState(false);
-const CLIENTES_INICIALES = [
-  {
-    id: "luchin",
-    nombre: "Almacén Luchin",
-    direccion: "Av. Esmeralda 3000, El Tabo",
-    whatsapp: "+56950690075",
-    admin: "Nicol",
-    fechaInicio: "2026-05-01",
-    fechaVencimiento: "2026-06-01",
-    activo: true,
-    plan: "Básico",
-    monto: 15000,
-  },
-];
 
-function PanelClientes({ onCerrar }) {
+
+
+function PanelClientesViejo({ onCerrar }) {
   const [clientes, setClientes] = React.useState(() => {
     const guardados = localStorage.getItem("mis_clientes");
     return guardados ? JSON.parse(guardados) : CLIENTES_INICIALES;
