@@ -18,6 +18,256 @@ const db = getFirestore(firebaseApp);
 
 // ─── CÓDIGO MAESTRO ────────────────────────────────────────
 const MASTER_CODE = "JUAN2024"; // Solo Juan lo sabe — cambia esto para cada cliente
+const CLIENTES_INICIALES = [
+  {
+    id: "luchin",
+    nombre: "Almacén Luchin",
+    direccion: "Av. Esmeralda 3000, El Tabo",
+    whatsapp: "+56950690075",
+    admin: "Nicol",
+    fechaInicio: "2026-05-01",
+    fechaVencimiento: "2026-06-01",
+    activo: true,
+    plan: "Básico",
+    monto: 15000,
+  },
+];
+
+function PanelClientes({ onCerrar }) {
+  const [clientes, setClientes] = React.useState(() => {
+    const guardados = localStorage.getItem("mis_clientes");
+    return guardados ? JSON.parse(guardados) : CLIENTES_INICIALES;
+  });
+  const [mostrarFormulario, setMostrarFormulario] = React.useState(false);
+  const [nuevo, setNuevo] = React.useState({
+    nombre: "", direccion: "", whatsapp: "", admin: "",
+    fechaVencimiento: "", plan: "Básico", monto: 15000, activo: true,
+  });
+
+  function guardar(lista) {
+    setClientes(lista);
+    localStorage.setItem("mis_clientes", JSON.stringify(lista));
+  }
+
+  function toggleActivo(id) {
+    const updated = clientes.map(c =>
+      c.id === id ? { ...c, activo: !c.activo } : c
+    );
+    guardar(updated);
+  }
+
+  function agregarCliente() {
+    if (!nuevo.nombre || !nuevo.fechaVencimiento) return;
+    const cliente = {
+      ...nuevo,
+      id: Date.now().toString(),
+      fechaInicio: new Date().toISOString().split("T")[0],
+    };
+    guardar([...clientes, cliente]);
+    setNuevo({ nombre: "", direccion: "", whatsapp: "", admin: "",
+      fechaVencimiento: "", plan: "Básico", monto: 15000, activo: true });
+    setMostrarFormulario(false);
+  }
+
+  function eliminarCliente(id) {
+    if (window.confirm("¿Eliminar este cliente?")) {
+      guardar(clientes.filter(c => c.id !== id));
+    }
+  }
+
+  const hoy = new Date().toISOString().split("T")[0];
+
+  const estiloCard = {
+    background: "#1e1e2e", borderRadius: 12, padding: 16,
+    marginBottom: 12, border: "1px solid #2a2a3e",
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)",
+      zIndex: 99999, display: "flex", flexDirection: "column",
+      fontFamily: "'Segoe UI', sans-serif", overflowY: "auto",
+    }}>
+      {/* HEADER */}
+      <div style={{
+        background: "#1a1f2e", padding: "16px 20px",
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        borderBottom: "1px solid #d4a017",
+      }}>
+        <div>
+          <h1 style={{ color: "#d4a017", margin: 0, fontSize: 18, fontWeight: 800 }}>
+            🧞 Panel de Clientes
+          </h1>
+          <p style={{ color: "#6b7280", margin: 0, fontSize: 12 }}>
+            Control total de tu negocio
+          </p>
+        </div>
+        <button onClick={onCerrar} style={{
+          background: "#374151", border: "none", borderRadius: 8,
+          color: "#fff", padding: "8px 14px", cursor: "pointer", fontSize: 13,
+        }}>
+          ✕ Cerrar
+        </button>
+      </div>
+
+      <div style={{ padding: 20, maxWidth: 600, margin: "0 auto", width: "100%" }}>
+
+        {/* RESUMEN */}
+        <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+          {[
+            { label: "Total clientes", valor: clientes.length, color: "#2563eb" },
+            { label: "Activos", valor: clientes.filter(c => c.activo).length, color: "#16a34a" },
+            { label: "Ingresos/mes", valor: `$${clientes.filter(c=>c.activo).reduce((a,c)=>a+c.monto,0).toLocaleString("es-CL")}`, color: "#d4a017" },
+          ].map((item, i) => (
+            <div key={i} style={{
+              flex: 1, background: "#1e1e2e", borderRadius: 10, padding: "10px 8px",
+              textAlign: "center", border: `1px solid ${item.color}44`,
+            }}>
+              <div style={{ color: item.color, fontWeight: 800, fontSize: 18 }}>{item.valor}</div>
+              <div style={{ color: "#6b7280", fontSize: 10 }}>{item.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* LISTA CLIENTES */}
+        {clientes.map(cliente => {
+          const vencido = cliente.fechaVencimiento < hoy;
+          const proxVencer = !vencido && cliente.fechaVencimiento <= new Date(Date.now() + 7*24*60*60*1000).toISOString().split("T")[0];
+          return (
+            <div key={cliente.id} style={estiloCard}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <span style={{
+                      width: 10, height: 10, borderRadius: "50%",
+                      background: cliente.activo ? "#16a34a" : "#dc2626",
+                      display: "inline-block",
+                    }} />
+                    <span style={{ color: "#f3f4f6", fontWeight: 700, fontSize: 14 }}>
+                      {cliente.nombre}
+                    </span>
+                    {vencido && <span style={{ background: "#dc262622", color: "#dc2626", fontSize: 10, padding: "2px 6px", borderRadius: 4 }}>VENCIDO</span>}
+                    {proxVencer && !vencido && <span style={{ background: "#d4a01722", color: "#d4a017", fontSize: 10, padding: "2px 6px", borderRadius: 4 }}>VENCE PRONTO</span>}
+                  </div>
+                  <div style={{ color: "#9ca3af", fontSize: 11, marginBottom: 2 }}>👤 {cliente.admin} · 📱 {cliente.whatsapp}</div>
+                  <div style={{ color: "#9ca3af", fontSize: 11, marginBottom: 2 }}>📍 {cliente.direccion}</div>
+                  <div style={{ color: "#9ca3af", fontSize: 11 }}>
+                    📅 Vence: <span style={{ color: vencido ? "#dc2626" : proxVencer ? "#d4a017" : "#6b7280" }}>
+                      {cliente.fechaVencimiento}
+                    </span>
+                    &nbsp;·&nbsp;
+                    💰 ${cliente.monto?.toLocaleString("es-CL")}/mes
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginLeft: 8 }}>
+                  <button
+                    onClick={() => toggleActivo(cliente.id)}
+                    style={{
+                      background: cliente.activo ? "#16a34a" : "#dc2626",
+                      border: "none", borderRadius: 6, color: "#fff",
+                      padding: "6px 10px", cursor: "pointer", fontSize: 11, fontWeight: 700,
+                    }}
+                  >
+                    {cliente.activo ? "✅ ON" : "🔴 OFF"}
+                  </button>
+                  <button
+                    onClick={() => eliminarCliente(cliente.id)}
+                    style={{
+                      background: "#374151", border: "none", borderRadius: 6,
+                      color: "#9ca3af", padding: "6px 10px", cursor: "pointer", fontSize: 11,
+                    }}
+                  >
+                    🗑
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* BOTÓN AGREGAR */}
+        {!mostrarFormulario ? (
+          <button
+            onClick={() => setMostrarFormulario(true)}
+            style={{
+              width: "100%", padding: 14, background: "#d4a017",
+              border: "none", borderRadius: 10, color: "#1a1f2e",
+              fontWeight: 800, fontSize: 14, cursor: "pointer", marginTop: 8,
+            }}
+          >
+            + Agregar nuevo cliente
+          </button>
+        ) : (
+          <div style={{ ...estiloCard, border: "1px solid #d4a017" }}>
+            <h3 style={{ color: "#d4a017", margin: "0 0 12px", fontSize: 14 }}>Nuevo cliente</h3>
+            {[
+              ["nombre", "Nombre del local *"],
+              ["direccion", "Dirección"],
+              ["whatsapp", "WhatsApp"],
+              ["admin", "Nombre administrador"],
+              ["fechaVencimiento", "Fecha vencimiento *"],
+            ].map(([key, label]) => (
+              <div key={key} style={{ marginBottom: 8 }}>
+                <label style={{ color: "#9ca3af", fontSize: 11 }}>{label}</label>
+                <input
+                  type={key === "fechaVencimiento" ? "date" : "text"}
+                  value={nuevo[key]}
+                  onChange={e => setNuevo(n => ({ ...n, [key]: e.target.value }))}
+                  style={{
+                    width: "100%", background: "#111827", border: "1px solid #374151",
+                    borderRadius: 6, padding: "8px 10px", color: "#f3f4f6",
+                    fontSize: 13, boxSizing: "border-box",
+                  }}
+                />
+              </div>
+            ))}
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ color: "#9ca3af", fontSize: 11 }}>Monto mensual ($)</label>
+              <input
+                type="number"
+                value={nuevo.monto}
+                onChange={e => setNuevo(n => ({ ...n, monto: Number(e.target.value) }))}
+                style={{
+                  width: "100%", background: "#111827", border: "1px solid #374151",
+                  borderRadius: 6, padding: "8px 10px", color: "#f3f4f6",
+                  fontSize: 13, boxSizing: "border-box",
+                }}
+              />
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setMostrarFormulario(false)} style={{
+                flex: 1, padding: 10, background: "#374151", border: "none",
+                borderRadius: 8, color: "#fff", cursor: "pointer", fontSize: 13,
+              }}>Cancelar</button>
+              <button onClick={agregarCliente} style={{
+                flex: 1, padding: 10, background: "#d4a017", border: "none",
+                borderRadius: 8, color: "#1a1f2e", fontWeight: 800, cursor: "pointer", fontSize: 13,
+              }}>Guardar</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// INSTRUCCIONES DE INSTALACIÓN:
+//
+// 1. Pega todo el código de arriba en App.jsx
+//    JUSTO DESPUÉS de: const CLAVE_MAESTRO = "JUAN2024";
+//
+// 2. Busca en App.jsx donde está el botón del Control Maestro
+//    (el punto verde/rojo) y agrega un botón para abrir el panel.
+//    O simplemente agrega esto al return principal:
+//
+//    const [verPanel, setVerPanel] = React.useState(false);
+//
+//    Y en el return:
+//    {verPanel && <PanelClientes onCerrar={() => setVerPanel(false)} />}
+//
+// 3. Agrega un botón secreto para abrir el panel (solo tú lo sabes)
+// ═══════════════════════════════════════════════════════════
 
 // ══════════════════════════════════════════════════════════════
 // PANTALLA DE CÓDIGO DE LOCAL
